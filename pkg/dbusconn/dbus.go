@@ -18,6 +18,7 @@ const (
 // DbusInterface callback called from dbus events
 type DbusInterface interface {
 	AddDevice(string, string, string, string, map[string]string) bool
+	RemoveDevice(string) bool
 }
 
 // Dbus exported structure
@@ -68,15 +69,21 @@ func (dc *Dbus) signalListener() {
 		dbus.WithMatchInterface(dbusInterface),
 		dbus.WithMatchMember(signalAddDevice))
 
+	dc.conn.AddMatchSignal(
+		dbus.WithMatchInterface(dbusInterface),
+		dbus.WithMatchMember(signalRemoveDevice))
+
 	go func() {
 		for signal := range sigc {
-			if !strings.HasSuffix(string(signal.Path), "/"+dc.Protocol) {
+			if !strings.HasPrefix(string(signal.Path), dbusPathPrefix+dc.Protocol) {
 				continue
 			}
 
 			switch signal.Name {
 			case dbusInterface + "." + signalAddDevice:
 				dc.handleSignalAddDevice(signal)
+			case dbusInterface + "." + signalRemoveDevice:
+				dc.handleSignalRemoveDevice(signal)
 			}
 		}
 	}()
