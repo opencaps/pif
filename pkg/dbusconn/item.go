@@ -74,6 +74,6 @@ func (dc *Dbus) EmitItemChanged(devID string, itemID string, data *Payload) {
 	}
 	bytes := []byte(string(json))
 
-	path := dbus.ObjectPath(dbusPathPrefix + dc.Protocol)
-	dc.conn.Emit(path, dbusInterface+"."+signalItemChanged, devID, itemID, bytes)
+	path := dbus.ObjectPath(dbusPathPrefix + dc.Protocol + "/" + devID + "/" + itemID)
+	dc.conn.Emit(path, dbusInterface+"."+signalItemChanged, bytes)
 }

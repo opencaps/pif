@@ -4,16 +4,18 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"ubiant/gateway/dbus-adapter/pkg/driver"
+
+	"gitlab.ubiant.me/gateway/dbus-adapter/pkg/driver"
 
 	"github.com/godbus/dbus"
 	"github.com/godbus/dbus/prop"
 )
 
 const (
-	msgBodyNotValid   = "body not valid"
-	signalAddDevice   = "AddDevice"
-	signalDeviceAdded = "DeviceAdded"
+	msgBodyNotValid    = "body not valid"
+	signalAddDevice    = "AddDevice"
+	signalDeviceAdded  = "DeviceAdded"
+	signalRemoveDevice = "RemoveDevice"
 
 	propertyOperabilityState  = "OperabilityState"
 	propertyPairingState      = "PairingState"
@@ -54,7 +56,6 @@ const (
 
 // DeviceInterface callback called from device dbus events
 type DeviceInterface interface {
-	RemoveDevice(*Device) bool
 	FindDriver(string, string) (*driver.DriverItem, bool)
 	SetItem(*Item, []byte) bool
 	SetOptionsItem(*Item) bool
@@ -107,8 +108,8 @@ func InitDevice(devID string, address string, typeID string, typeVersion string,
 
 // EmitDeviceAdded to call when a device is added
 func (dc *Dbus) EmitDeviceAdded(devID string, alreadyAdded bool) {
-	path := dbus.ObjectPath(dbusPathPrefix + dc.Protocol)
-	dc.conn.Emit(path, dbusInterface+"."+signalDeviceAdded, devID, alreadyAdded)
+	path := dbus.ObjectPath(dbusPathPrefix + dc.Protocol + "/" + devID)
+	dc.conn.Emit(path, dbusInterface+"."+signalDeviceAdded, alreadyAdded)
 }
 
 // ExportDeviceOnDbus export a device on dbus
@@ -160,9 +161,16 @@ func (device *Device) SetOptions(options map[string]string) (bool, *dbus.Error) 
 	return device.callbacks.SetOptionsDevice(device), nil
 }
 
-// RemoveDevice called to remove this device
-func (device *Device) RemoveDevice() (bool, *dbus.Error) {
-	return device.callbacks.RemoveDevice(device), nil
+func (dc *Dbus) handleSignalRemoveDevice(signal *dbus.Signal) {
+	path := strings.Split(string(signal.Path), "/")
+	len := len(path)
+	if len < 1 {
+		log.Warning("Signal", signalRemoveDevice, "path not valid", signal.Path)
+		return
+	}
+	devID := path[len-1]
+	log.Info("Signal", signalRemoveDevice, "received - devID:", devID)
+	dc.Callbacks.RemoveDevice(devID)
 }
 
 // AddItem called to add a new item to this device
