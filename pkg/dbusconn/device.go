@@ -5,8 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"gitlab.ubiant.me/gateway/dbus-adapter/pkg/driver"
-
 	"github.com/godbus/dbus"
 	"github.com/godbus/dbus/prop"
 )
@@ -56,7 +54,7 @@ const (
 
 // DeviceInterface callback called from device dbus events
 type DeviceInterface interface {
-	FindDriver(string, string) (*driver.DriverItem, bool)
+	FindDriverFrequency(string, string) (*int, bool)
 	SetItem(*Item, []byte) bool
 	SetOptionsItem(*Item) bool
 	SetOptionsDevice(*Device) bool
@@ -180,7 +178,7 @@ func (device *Device) AddItem(itemID string, typeID string, typeVersion string, 
 	device.Lock.Lock()
 	item, itemPresent := device.Items[itemID]
 	if !itemPresent {
-		driver, found := device.callbacks.FindDriver(typeID, typeVersion)
+		frequency, found := device.callbacks.FindDriverFrequency(typeID, typeVersion)
 
 		if !found {
 			log.Warning("Unable to add the item because driver not found", itemID)
@@ -191,8 +189,8 @@ func (device *Device) AddItem(itemID string, typeID string, typeVersion string, 
 		item = InitItem(itemID, typeID, typeVersion, device.Address, options, device.callbacks)
 		device.Items[itemID] = item
 
-		if driver.Frequency != nil && device.frequency == nil {
-			device.frequency = driver.Frequency
+		if frequency != nil && device.frequency == nil {
+			device.frequency = frequency
 		}
 	}
 	device.Lock.Unlock()
