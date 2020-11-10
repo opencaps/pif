@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/godbus/dbus"
-	"github.com/godbus/dbus/prop"
+	"github.com/godbus/dbus/v5"
+	"github.com/godbus/dbus/v5/prop"
 )
 
 const (
