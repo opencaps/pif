@@ -49,7 +49,7 @@ const (
 	// ReachabilityUnknown state 'unknown' for ReachabilityState
 	ReachabilityUnknown ReachabilityState = 3
 
-	frequencyMaxAttempts = 3
+	frequencyMaxAttempts = 24
 )
 
 // DeviceInterface callback called from device dbus events
