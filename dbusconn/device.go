@@ -65,7 +65,7 @@ type DeviceInterface interface {
 
 // Device sent over dbus
 type Device struct {
-	Lock sync.Mutex
+	sync.Mutex
 
 	DevID       string
 	Address     string
@@ -175,14 +175,14 @@ func (dc *Dbus) handleSignalRemoveDevice(signal *dbus.Signal) {
 func (device *Device) AddItem(itemID string, typeID string, typeVersion string, options map[string]string) (bool, *dbus.Error) {
 	log.Info("AddItem called - itemID:", itemID, "typeID:", typeID, "typeVersion:", typeVersion, "options:", options)
 
-	device.Lock.Lock()
+	device.Lock()
 	item, itemPresent := device.Items[itemID]
 	if !itemPresent {
 		frequency, found := device.callbacks.FindDriverFrequency(typeID, typeVersion)
 
 		if !found {
 			log.Warning("Unable to add the item because driver not found", itemID)
-			device.Lock.Unlock()
+			device.Unlock()
 			return false, nil
 		}
 
@@ -193,7 +193,7 @@ func (device *Device) AddItem(itemID string, typeID string, typeVersion string, 
 			device.frequency = frequency
 		}
 	}
-	device.Lock.Unlock()
+	device.Unlock()
 
 	if !itemPresent {
 		device.callbacks.AddItem(device, item)
@@ -206,14 +206,14 @@ func (device *Device) AddItem(itemID string, typeID string, typeVersion string, 
 func (device *Device) RemoveItem(itemID string) (bool, *dbus.Error) {
 	log.Info("RemoveItem called - itemID:", itemID)
 
-	device.Lock.Lock()
+	device.Lock()
 	item, present := device.Items[itemID]
 	if present {
 		delete(device.Items, itemID)
 	} else {
 		log.Warning("Fail to remove the item", itemID)
 	}
-	device.Lock.Unlock()
+	device.Unlock()
 
 	if present {
 		device.callbacks.RemoveItem(device, item)

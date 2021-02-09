@@ -14,7 +14,7 @@ const (
 // Module is a dbus object which represents the states of the module
 type Module struct {
 	ready bool
-	lock  sync.Mutex
+	sync.Mutex
 }
 
 // ExportModuleObject Initializes and exports the Module object on DBus
@@ -37,16 +37,16 @@ func (dc *Dbus) ExportModuleObject(protocol string) (*Module, bool) {
 }
 
 func (m *Module) setReady() {
-	m.lock.Lock()
+	m.Lock()
 	m.ready = true
-	m.lock.Unlock()
+	m.Unlock()
 }
 
 // IsReady dbus method to known is the module is ready or not
 func (m *Module) IsReady() (bool, *dbus.Error) {
-	m.lock.Lock()
+	m.Lock()
 	var ready = m.ready
-	m.lock.Unlock()
+	m.Unlock()
 
 	return ready, nil
 }
