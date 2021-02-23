@@ -54,18 +54,17 @@ const (
 
 // DeviceInterface callback called from device dbus events
 type DeviceInterface interface {
-	FindDriverFrequency(string, string) (*int, bool)
 	SetItem(*Item, []byte) bool
 	SetOptionsItem(*Item) bool
 	SetOptionsDevice(*Device) bool
-	AddItem(*Device, *Item)
+	AddItem(*Device, *Item) bool
 	RemoveItem(*Device, *Item)
 	SetUpdateMode(*Device, int) bool
 }
 
 // Device sent over dbus
 type Device struct {
-	Lock sync.Mutex
+	sync.Mutex
 
 	DevID       string
 	Address     string
@@ -76,7 +75,7 @@ type Device struct {
 	properties *prop.Properties
 	Items      map[string]*Item
 
-	frequency          *int // in ms
+	Frequency          *int // in ms
 	lastReachabilityOk *time.Time
 
 	callbacks DeviceInterface
@@ -175,28 +174,17 @@ func (dc *Dbus) handleSignalRemoveDevice(signal *dbus.Signal) {
 func (device *Device) AddItem(itemID string, typeID string, typeVersion string, options map[string]string) (bool, *dbus.Error) {
 	log.Info("AddItem called - itemID:", itemID, "typeID:", typeID, "typeVersion:", typeVersion, "options:", options)
 
-	device.Lock.Lock()
+	device.Lock()
 	item, itemPresent := device.Items[itemID]
 	if !itemPresent {
-		frequency, found := device.callbacks.FindDriverFrequency(typeID, typeVersion)
-
-		if !found {
-			log.Warning("Unable to add the item because driver not found", itemID)
-			device.Lock.Unlock()
-			return false, nil
-		}
-
 		item = InitItem(itemID, typeID, typeVersion, device.Address, options, device.callbacks)
 		device.Items[itemID] = item
-
-		if frequency != nil && device.frequency == nil {
-			device.frequency = frequency
+		device.Unlock()
+		if !device.callbacks.AddItem(device, item) {
+			device.RemoveItem(itemID)
 		}
-	}
-	device.Lock.Unlock()
-
-	if !itemPresent {
-		device.callbacks.AddItem(device, item)
+	} else {
+		device.Unlock()
 	}
 
 	return true, nil
@@ -206,14 +194,14 @@ func (device *Device) AddItem(itemID string, typeID string, typeVersion string, 
 func (device *Device) RemoveItem(itemID string) (bool, *dbus.Error) {
 	log.Info("RemoveItem called - itemID:", itemID)
 
-	device.Lock.Lock()
+	device.Lock()
 	item, present := device.Items[itemID]
 	if present {
 		delete(device.Items, itemID)
 	} else {
 		log.Warning("Fail to remove the item", itemID)
 	}
-	device.Lock.Unlock()
+	device.Unlock()
 
 	if present {
 		device.callbacks.RemoveItem(device, item)
@@ -305,11 +293,11 @@ func (device *Device) SetPairingState(state PairingState) {
 
 // HeartBeat return true if the hearbeat of the device is ok
 func (device *Device) HeartBeat() bool {
-	if device.frequency == nil || device.lastReachabilityOk == nil {
+	if device.Frequency == nil || device.lastReachabilityOk == nil {
 		return false
 	}
 
-	timeMin := time.Now().Add(-time.Duration((*device.frequency)*frequencyMaxAttempts) * time.Millisecond)
+	timeMin := time.Now().Add(-time.Duration((*device.Frequency)*frequencyMaxAttempts) * time.Millisecond)
 	return device.lastReachabilityOk.After(timeMin)
 }
 

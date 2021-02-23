@@ -11,8 +11,8 @@ import (
 
 // DriversManager contains all the driver known by the firmware
 type DriversManager struct {
-	items       map[string]DriverItem
-	itemsLocker sync.Mutex
+	items map[string]DriverItem
+	sync.Mutex
 }
 
 var log = logging.MustGetLogger("dbus-adapter")
@@ -24,10 +24,10 @@ func (dm *DriversManager) InitDriversManager() {
 
 // GetItem to get an item from the struct
 func (dm *DriversManager) GetItem(id string, version string) (*DriverItem, bool) {
-	dm.itemsLocker.Lock()
+	dm.Lock()
 	name := driverName(id, version)
 	driver, driverFound := dm.items[name]
-	dm.itemsLocker.Unlock()
+	dm.Unlock()
 
 	return &driver, driverFound
 }
@@ -74,9 +74,9 @@ func (dm *DriversManager) FindItem(id string, version string) (*DriverItem, bool
 
 	log.Info("Driver from disk:", driver)
 
-	dm.itemsLocker.Lock()
+	dm.Lock()
 	dm.items[driverName(id, version)] = *driver
-	dm.itemsLocker.Unlock()
+	dm.Unlock()
 
 	return driver, driverFound
 }
