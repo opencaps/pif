@@ -59,7 +59,7 @@ type DeviceInterface interface {
 	SetOptionsDevice(*Device) bool
 	AddItem(*Device, *Item) bool
 	RemoveItem(*Device, *Item)
-	SetUpdateMode(*Device, int) bool
+	UpdateFirmware(*Device, string) string
 }
 
 // Device sent over dbus
@@ -156,6 +156,11 @@ func (dc *Dbus) handleSignalAddDevice(signal *dbus.Signal) {
 func (device *Device) SetOptions(options map[string]string) (bool, *dbus.Error) {
 	device.Options = options
 	return device.callbacks.SetOptionsDevice(device), nil
+}
+
+// UpdateFirmware call firmware update
+func (device *Device) UpdateFirmware(param string) (string, *dbus.Error) {
+	return device.callbacks.UpdateFirmware(device, param), nil
 }
 
 func (dc *Dbus) handleSignalRemoveDevice(signal *dbus.Signal) {
@@ -349,12 +354,4 @@ func (device *Device) SetVersion(newVersion string) {
 
 	log.Info("Version of the device", device.DevID, "changed from", oldState, "to", newVersion)
 	device.properties.SetMust(dbusInterface, propertyVersion, newVersion)
-}
-
-// SetUpdateMode set the update mode
-func (device *Device) SetUpdateMode(updateMode int) *dbus.Error {
-	if device.callbacks.SetUpdateMode(device, updateMode) {
-		return nil
-	}
-	return dbus.NewError("Failed", nil)
 }
