@@ -66,11 +66,12 @@ type DeviceInterface interface {
 type Device struct {
 	sync.Mutex
 
-	DevID       string
-	Address     string
-	TypeID      string
-	TypeVersion string
-	Options     map[string]string
+	DevID           string
+	Address         string
+	TypeID          string
+	TypeVersion     string
+	Options         map[string]string
+	FirmwareVersion string
 
 	properties *prop.Properties
 	Items      map[string]*Item
@@ -341,17 +342,12 @@ func (device *Device) SetVersion(newVersion string) {
 	}
 
 	dbusInterface := device.dbusInterface()
-	oldVariant, err := device.properties.Get(dbusInterface, propertyVersion)
 
-	if err != nil {
+	if device.FirmwareVersion == newVersion {
 		return
 	}
 
-	oldState := oldVariant.Value().(string)
-	if oldState == newVersion {
-		return
-	}
-
-	log.Info("Version of the device", device.DevID, "changed from", oldState, "to", newVersion)
+	log.Info("Version of the device", device.DevID, "changed from", device.FirmwareVersion, "to", newVersion)
+	device.FirmwareVersion = newVersion
 	device.properties.SetMust(dbusInterface, propertyVersion, newVersion)
 }
