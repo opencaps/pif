@@ -59,18 +59,19 @@ type DeviceInterface interface {
 	SetOptionsDevice(*Device) bool
 	AddItem(*Device, *Item) bool
 	RemoveItem(*Device, *Item)
-	SetUpdateMode(*Device, int) bool
+	UpdateFirmware(*Device, string) string
 }
 
 // Device sent over dbus
 type Device struct {
 	sync.Mutex
 
-	DevID       string
-	Address     string
-	TypeID      string
-	TypeVersion string
-	Options     map[string]string
+	DevID           string
+	Address         string
+	TypeID          string
+	TypeVersion     string
+	Options         map[string]string
+	FirmwareVersion string
 
 	properties *prop.Properties
 	Items      map[string]*Item
@@ -156,6 +157,11 @@ func (dc *Dbus) handleSignalAddDevice(signal *dbus.Signal) {
 func (device *Device) SetOptions(options map[string]string) (bool, *dbus.Error) {
 	device.Options = options
 	return device.callbacks.SetOptionsDevice(device), nil
+}
+
+// UpdateFirmware call firmware update
+func (device *Device) UpdateFirmware(param string) (string, *dbus.Error) {
+	return device.callbacks.UpdateFirmware(device, param), nil
 }
 
 func (dc *Dbus) handleSignalRemoveDevice(signal *dbus.Signal) {
@@ -336,25 +342,12 @@ func (device *Device) SetVersion(newVersion string) {
 	}
 
 	dbusInterface := device.dbusInterface()
-	oldVariant, err := device.properties.Get(dbusInterface, propertyVersion)
 
-	if err != nil {
+	if device.FirmwareVersion == newVersion {
 		return
 	}
 
-	oldState := oldVariant.Value().(string)
-	if oldState == newVersion {
-		return
-	}
-
-	log.Info("Version of the device", device.DevID, "changed from", oldState, "to", newVersion)
+	log.Info("Version of the device", device.DevID, "changed from", device.FirmwareVersion, "to", newVersion)
+	device.FirmwareVersion = newVersion
 	device.properties.SetMust(dbusInterface, propertyVersion, newVersion)
-}
-
-// SetUpdateMode set the update mode
-func (device *Device) SetUpdateMode(updateMode int) *dbus.Error {
-	if device.callbacks.SetUpdateMode(device, updateMode) {
-		return nil
-	}
-	return dbus.NewError("Failed", nil)
 }
