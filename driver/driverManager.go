@@ -20,6 +20,10 @@ var log = logging.MustGetLogger("dbus-adapter")
 // InitDriversManager init the the struct
 func (dm *DriversManager) InitDriversManager() {
 	dm.items = make(map[string]DriverItem)
+	// Create item dir if not existing
+	if _, err := os.Stat(itemsPath); os.IsNotExist(err) {
+		os.MkdirAll(itemsPath, 0755)
+	}
 }
 
 // GetItem to get an item from the struct
