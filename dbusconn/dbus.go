@@ -40,7 +40,7 @@ func (dc *Dbus) InitDbus() bool {
 	}
 
 	dbusName := dbusNamePrefix + dc.Protocol
-	reply, err := conn.RequestName(dbusName, dbus.NameFlagDoNotQueue)
+	reply, err := conn.RequestName(dbusName, dbus.NameFlagReplaceExisting|dbus.NameFlagDoNotQueue)
 	if err != nil {
 		log.Error("Fail to request Dbus name", err)
 		return false
