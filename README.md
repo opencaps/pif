@@ -1,3 +1,3 @@
-# dbus-adapter
+# Protocol Interoperability Framework
 
-Library to help the adapters to communicate with HemisGateway through D-Bus
+Library to help the protocol applications to communicate with the interoperable ubiant framework
