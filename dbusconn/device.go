@@ -1,70 +1,67 @@
 package dbusconn
 
 import (
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/prop"
+	"github.com/op/go-logging"
 )
 
 const (
-	msgBodyNotValid    = "body not valid"
-	signalAddDevice    = "AddDevice"
-	signalDeviceAdded  = "DeviceAdded"
-	signalRemoveDevice = "RemoveDevice"
+	msgBodyNotValid     = "body not valid"
+	signalDeviceAdded   = "DeviceAdded"
+	signalDeviceRemoved = "DeviceRemoved"
 
 	propertyOperabilityState  = "OperabilityState"
 	propertyPairingState      = "PairingState"
 	propertyReachabilityState = "ReachabilityState"
 	propertyVersion           = "Version"
+	propertyOptions           = "Options"
 
 	// OperabilityOk state 'ok' for OperabilityState
-	OperabilityOk OperabilityState = 0
+	OperabilityOk OperabilityState = "OK"
 	// OperabilityPartial state 'partial' for OperabilityState
-	OperabilityPartial OperabilityState = 1
+	OperabilityPartial OperabilityState = "PARTIAL"
 	// OperabilityKo state 'Ko' for OperabilityState
-	OperabilityKo OperabilityState = 2
+	OperabilityKo OperabilityState = "KO"
 	// OperabilityUnknown state 'unknown' for OperabilityState
-	OperabilityUnknown OperabilityState = 3
+	OperabilityUnknown OperabilityState = "UNKNOWN"
 
 	// PairingOk state 'ok' for PairingState
-	PairingOk PairingState = 0
-	// PairingInProgres state 'in progres' for PairingState
-	PairingInProgres PairingState = 1
+	PairingOk PairingState = "OK"
+	// PairingInProgres state 'in progress' for PairingState
+	PairingInProgress PairingState = "IN_PROGRESS"
 	// PairingKo state 'ko' for PairingState
-	PairingKo PairingState = 2
+	PairingKo PairingState = "KO"
 	// PairingUnknown state 'unknown' for PairingState
-	PairingUnknown PairingState = 3
+	PairingUnknown PairingState = "UNKNOWN"
 	// PairingNotNeeded state 'not needed' for PairingState
-	PairingNotNeeded PairingState = 4
+	PairingNotNeeded PairingState = "NOT_NEEDED"
 
 	// ReachabilityOk state 'ok' for ReachabilityState
-	ReachabilityOk ReachabilityState = 0
+	ReachabilityOk ReachabilityState = "OK"
 	// ReachabilityKo state 'ko' for ReachabilityState
-	ReachabilityKo ReachabilityState = 1
+	ReachabilityKo ReachabilityState = "KO"
 	// ReachabilityRescue state 'rescue' for ReachabilityState
-	ReachabilityRescue ReachabilityState = 2
+	ReachabilityRescue ReachabilityState = "RESCUE"
 	// ReachabilityUnknown state 'unknown' for ReachabilityState
-	ReachabilityUnknown ReachabilityState = 3
-
-	frequencyMaxAttempts = 24
+	ReachabilityUnknown ReachabilityState = "UNKNOWN"
 )
 
-// DeviceInterface callback called from device dbus events
-type DeviceInterface interface {
-	SetItem(*Item, []byte) bool
-	SetOptionsItem(*Item) bool
-	SetOptionsDevice(*Device) bool
-	AddItem(*Device, *Item) bool
-	RemoveItem(*Device, *Item)
-	UpdateFirmware(*Device, string) string
+type setDeviceOptionInterface interface {
+	SetDeviceOptions(*Device) *dbus.Error
+}
+
+type updateFirmwareInterface interface {
+	UpdateFirmware(*Device, string) (string, *dbus.Error)
 }
 
 // Device sent over dbus
 type Device struct {
 	sync.Mutex
+
+	protocol *Protocol
 
 	DevID           string
 	Address         string
@@ -76,23 +73,38 @@ type Device struct {
 	properties *prop.Properties
 	Items      map[string]*Item
 
-	Frequency          *int // in ms
-	lastReachabilityOk *time.Time
+	log *logging.Logger
 
-	callbacks DeviceInterface
+	SetDeviceOptionCb setDeviceOptionInterface
+	UpdateFirmwareCb  updateFirmwareInterface
 }
 
 // OperabilityState informs if the device work
-type OperabilityState int32
+type OperabilityState string
 
 // PairingState informs if the state of the pairing
-type PairingState int32
+type PairingState string
 
 // ReachabilityState informs if the device is reachable
-type ReachabilityState int32
+type ReachabilityState string
 
-// InitDevice to init a Device struct
-func InitDevice(devID string, address string, typeID string, typeVersion string, options map[string]string, deviceInterface DeviceInterface) *Device {
+func (d *Device) setDeviceOptions(c *prop.Change) *dbus.Error {
+	if !isNil(d.SetDeviceOptionCb) {
+		return d.SetDeviceOptionCb.SetDeviceOptions(d)
+	}
+	d.log.Warning("No Options")
+	return nil
+}
+
+func (d *Device) UpdateFirmware(data string) (string, *dbus.Error) {
+	if !isNil(d.UpdateFirmwareCb) {
+		return d.UpdateFirmwareCb.UpdateFirmware(d, data)
+	}
+	d.log.Warning("Update firmware not implemented")
+	return "", nil
+}
+
+func initDevice(devID string, address string, typeID string, typeVersion string, options map[string]string, p *Protocol) *Device {
 	return &Device{
 		DevID:       devID,
 		Address:     address,
@@ -100,143 +112,107 @@ func InitDevice(devID string, address string, typeID string, typeVersion string,
 		TypeVersion: typeVersion,
 		Options:     options,
 		Items:       make(map[string]*Item),
-		callbacks:   deviceInterface,
+		protocol:    p,
+		log:         p.log,
 	}
 }
 
 // EmitDeviceAdded to call when a device is added
-func (dc *Dbus) EmitDeviceAdded(devID string, alreadyAdded bool) {
-	path := dbus.ObjectPath(dbusPathPrefix + dc.Protocol + "/" + devID)
-	dc.conn.Emit(path, dbusInterface+"."+signalDeviceAdded, alreadyAdded)
+func (dc *Dbus) emitDeviceAdded(device *Device) {
+	args := make([]interface{}, 4)
+	args[0] = device.Address
+	args[1] = device.TypeID
+	args[2] = device.TypeVersion
+	args[3] = device.Options
+	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + device.DevID)
+	dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceAdded, args...)
+}
+
+// EmitDeviceAdded to call when a device is added
+func (dc *Dbus) emitDeviceRemoved(devID string) {
+	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + devID)
+	dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceRemoved)
 }
 
 // ExportDeviceOnDbus export a device on dbus
-func (dc *Dbus) ExportDeviceOnDbus(device *Device) {
+func (dc *Dbus) exportDeviceOnDbus(device *Device) {
 	if dc.conn == nil {
-		log.Warning("Unable to export dbus object because dbus connection nil")
+		dc.Log.Warning("Unable to export dbus object because dbus connection nil")
 	}
 
-	path := dbus.ObjectPath(dbusPathPrefix + dc.Protocol + "/" + device.DevID)
+	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + device.DevID)
 
 	// properties
-	propsSpec := initProp(device.dbusInterface())
+	propsSpec := initDeviceProp(device)
 	properties, err := prop.Export(dc.conn, path, propsSpec)
 	if err == nil {
 		device.properties = properties
 	} else {
-		log.Error("Fail to export the properties of the device", device.DevID, err)
+		dc.Log.Error("Fail to export the properties of the device", device.DevID, err)
 	}
 
 	// object
-	dc.conn.Export(device, path, dbusInterface)
+	dc.conn.Export(device, path, dbusDeviceInterface)
 
-	log.Info("Device exported:", path)
-}
-
-func (dc *Dbus) handleSignalAddDevice(signal *dbus.Signal) {
-	if len(signal.Body) < 4 {
-		log.Warning("Signal", signalAddDevice, msgBodyNotValid, signal.Body)
-		return
-	}
-
-	devID, conv1 := signal.Body[0].(string)
-	address, conv2 := signal.Body[1].(string)
-	typeID, conv3 := signal.Body[2].(string)
-	typeVersion, conv4 := signal.Body[3].(string)
-	options, conv5 := signal.Body[4].(map[string]string)
-
-	if !conv1 || !conv2 || !conv3 || !conv4 || !conv5 {
-		log.Warning("Signal", signalAddDevice, msgBodyNotValid, signal.Body)
-		return
-	}
-	log.Info("Signal", signalAddDevice, "received - devID:", devID, "address:", address, "typeID:", typeID, "typeVersion:", typeVersion, "options:", options)
-	dc.Callbacks.AddDevice(devID, strings.ToUpper(address), typeID, typeVersion, options)
-}
-
-// SetOptions called when a new options come from Hemis
-func (device *Device) SetOptions(options map[string]string) (bool, *dbus.Error) {
-	device.Options = options
-	return device.callbacks.SetOptionsDevice(device), nil
-}
-
-// UpdateFirmware call firmware update
-func (device *Device) UpdateFirmware(param string) (string, *dbus.Error) {
-	return device.callbacks.UpdateFirmware(device, param), nil
-}
-
-func (dc *Dbus) handleSignalRemoveDevice(signal *dbus.Signal) {
-	path := strings.Split(string(signal.Path), "/")
-	len := len(path)
-	if len < 1 {
-		log.Warning("Signal", signalRemoveDevice, "path not valid", signal.Path)
-		return
-	}
-	devID := path[len-1]
-	log.Info("Signal", signalRemoveDevice, "received - devID:", devID)
-	dc.Callbacks.RemoveDevice(devID)
+	dc.Log.Info("Device exported:", path)
 }
 
 // AddItem called to add a new item to this device
 func (device *Device) AddItem(itemID string, typeID string, typeVersion string, options map[string]string) (bool, *dbus.Error) {
-	log.Info("AddItem called - itemID:", itemID, "typeID:", typeID, "typeVersion:", typeVersion, "options:", options)
+	device.log.Info("AddItem called - itemID:", itemID, "typeID:", typeID, "typeVersion:", typeVersion, "options:", options)
 
 	device.Lock()
-	item, itemPresent := device.Items[itemID]
+	_, itemPresent := device.Items[itemID]
 	if !itemPresent {
-		item = InitItem(itemID, typeID, typeVersion, device.Address, options, device.callbacks)
+		item := InitItem(itemID, typeID, typeVersion, options, device)
 		device.Items[itemID] = item
-		device.Unlock()
-		if !device.callbacks.AddItem(device, item) {
-			device.RemoveItem(itemID)
-		}
-	} else {
-		device.Unlock()
-	}
+		device.protocol.dc.ExportItemOnDbus(device.DevID, item)
 
+		if !isNil(device.protocol.Callbacks) {
+			go device.protocol.Callbacks.AddItem(item)
+		}
+		device.protocol.dc.emitItemAdded(device.DevID, item)
+		device.Unlock()
+		return false, nil
+	}
+	device.Unlock()
 	return true, nil
 }
 
 // RemoveItem called to remove an item to this device
-func (device *Device) RemoveItem(itemID string) (bool, *dbus.Error) {
-	log.Info("RemoveItem called - itemID:", itemID)
+func (device *Device) RemoveItem(itemID string) *dbus.Error {
+	device.log.Info("RemoveItem called - itemID:", itemID)
 
 	device.Lock()
-	item, present := device.Items[itemID]
+	_, present := device.Items[itemID]
 	if present {
 		delete(device.Items, itemID)
-	} else {
-		log.Warning("Fail to remove the item", itemID)
+		if !isNil(device.protocol.Callbacks) {
+			go device.protocol.Callbacks.RemoveItem(device.DevID, itemID)
+		}
+		device.protocol.dc.emitItemRemoved(device.DevID, itemID)
 	}
 	device.Unlock()
-
-	if present {
-		device.callbacks.RemoveItem(device, item)
-	}
-
-	return present, nil
+	return nil
 }
 
-func (device *Device) dbusInterface() string {
-	return dbusInterface + "." + device.DevID
-}
-
-func initProp(dbusInterface string) map[string]map[string]*prop.Prop {
+func initDeviceProp(device *Device) map[string]map[string]*prop.Prop {
 	return map[string]map[string]*prop.Prop{
-		dbusInterface: {
+		dbusDeviceInterface: {
 			propertyOperabilityState: {
-				Value:    int32(OperabilityUnknown),
+				Value:    string(OperabilityUnknown),
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,
 			},
 			propertyPairingState: {
-				Value:    int32(PairingUnknown),
+				Value:    string(PairingUnknown),
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,
 			},
 			propertyReachabilityState: {
-				Value:    int32(ReachabilityKo),
+				Value:    string(ReachabilityKo),
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,
@@ -246,6 +222,12 @@ func initProp(dbusInterface string) map[string]map[string]*prop.Prop {
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,
+			},
+			propertyOptions: {
+				Value:    device.Options,
+				Writable: true,
+				Emit:     prop.EmitTrue,
+				Callback: device.setDeviceOptions,
 			},
 		},
 	}
@@ -257,21 +239,20 @@ func (device *Device) SetOperabilityState(state OperabilityState) {
 		return
 	}
 
-	dbusInterface := device.dbusInterface()
-	oldVariant, err := device.properties.Get(dbusInterface, propertyOperabilityState)
+	oldVariant, err := device.properties.Get(dbusDeviceInterface, propertyOperabilityState)
 
 	if err != nil {
 		return
 	}
 
-	oldState := oldVariant.Value().(int32)
-	newState := int32(state)
+	oldState := oldVariant.Value().(string)
+	newState := string(state)
 	if oldState == newState {
 		return
 	}
 
-	log.Info("OperabilityState of the device", device.DevID, "changed from", oldState, "to", newState)
-	device.properties.SetMust(dbusInterface, propertyOperabilityState, newState)
+	device.log.Info("OperabilityState of the device", device.DevID, "changed from", oldState, "to", newState)
+	device.properties.SetMust(dbusDeviceInterface, propertyOperabilityState, newState)
 }
 
 // SetPairingState set the value of the property PairingState
@@ -280,59 +261,42 @@ func (device *Device) SetPairingState(state PairingState) {
 		return
 	}
 
-	dbusInterface := device.dbusInterface()
-	oldVariant, err := device.properties.Get(dbusInterface, propertyPairingState)
+	oldVariant, err := device.properties.Get(dbusDeviceInterface, propertyPairingState)
 
 	if err != nil {
 		return
 	}
 
-	oldState := oldVariant.Value().(int32)
-	newState := int32(state)
+	oldState := oldVariant.Value().(string)
+	newState := string(state)
 	if oldState == newState {
 		return
 	}
 
-	log.Info("propertyPairingState of the device", device.DevID, "changed from", oldState, "to", newState)
-	device.properties.SetMust(dbusInterface, propertyPairingState, newState)
-}
-
-// HeartBeat return true if the hearbeat of the device is ok
-func (device *Device) HeartBeat() bool {
-	if device.Frequency == nil || device.lastReachabilityOk == nil {
-		return false
-	}
-
-	timeMin := time.Now().Add(-time.Duration((*device.Frequency)*frequencyMaxAttempts) * time.Millisecond)
-	return device.lastReachabilityOk.After(timeMin)
+	device.log.Info("propertyPairingState of the device", device.DevID, "changed from", oldState, "to", newState)
+	device.properties.SetMust(dbusDeviceInterface, propertyPairingState, newState)
 }
 
 // SetReachabilityState set the value of the property ReachabilityState
 func (device *Device) SetReachabilityState(state ReachabilityState) {
-	if state == ReachabilityOk {
-		now := time.Now()
-		device.lastReachabilityOk = &now
-	}
-
 	if device.properties == nil {
 		return
 	}
 
-	dbusInterface := device.dbusInterface()
-	oldVariant, err := device.properties.Get(dbusInterface, propertyReachabilityState)
+	oldVariant, err := device.properties.Get(dbusDeviceInterface, propertyReachabilityState)
 
 	if err != nil {
 		return
 	}
 
-	oldState := oldVariant.Value().(int32)
-	newState := int32(state)
+	oldState := oldVariant.Value().(string)
+	newState := string(state)
 	if oldState == newState {
 		return
 	}
 
-	log.Info("propertyReachabilityState of the device", device.DevID, "changed from", oldState, "to", newState)
-	device.properties.SetMust(dbusInterface, propertyReachabilityState, newState)
+	device.log.Info("propertyReachabilityState of the device", device.DevID, "changed from", oldState, "to", newState)
+	device.properties.SetMust(dbusDeviceInterface, propertyReachabilityState, newState)
 }
 
 // SetVersion set the value of the property Version
@@ -341,13 +305,30 @@ func (device *Device) SetVersion(newVersion string) {
 		return
 	}
 
-	dbusInterface := device.dbusInterface()
-
 	if device.FirmwareVersion == newVersion {
 		return
 	}
 
-	log.Info("Version of the device", device.DevID, "changed from", device.FirmwareVersion, "to", newVersion)
+	device.log.Info("Version of the device", device.DevID, "changed from", device.FirmwareVersion, "to", newVersion)
 	device.FirmwareVersion = newVersion
-	device.properties.SetMust(dbusInterface, propertyVersion, newVersion)
+	device.properties.SetMust(dbusDeviceInterface, propertyVersion, newVersion)
+}
+
+// SetOption set the value of the property Option
+func (device *Device) SetOption(key string, newValue string) {
+	oldVal := "empty"
+	if device.properties == nil {
+		return
+	}
+
+	if val, ok := device.Options[key]; ok {
+		if val == newValue {
+			return
+		}
+		oldVal = val
+	}
+
+	device.log.Info("Option", key, "of the device", device.DevID, "changed from", oldVal, "to", newValue)
+	device.Options[key] = newValue
+	device.properties.SetMust(dbusDeviceInterface, propertyOptions, device.Options)
 }

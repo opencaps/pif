@@ -1,4 +1,4 @@
-module github.com/ubiant/dbus-adapter
+module github.com/ubiant/pif
 
 go 1.16
 
