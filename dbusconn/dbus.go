@@ -2,7 +2,7 @@ package dbusconn
 
 import (
 	"os"
-	"strings"
+	"reflect"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/op/go-logging"
@@ -10,88 +10,57 @@ import (
 
 const (
 	driverPath     = "/data/drivers/items/"
-	dbusNamePrefix = "com.ubiant.Radio."
+	dbusNamePrefix = "com.ubiant.Protocol."
 	dbusPathPrefix = "/com/ubiant/Devices/"
 	dbusInterface  = "com.ubiant.Devices"
 )
 
-// DbusInterface callback called from dbus events
-type DbusInterface interface {
-	AddDevice(string, string, string, string, map[string]string) bool
-	RemoveDevice(string) bool
-}
-
 // Dbus exported structure
 type Dbus struct {
-	conn      *dbus.Conn
-	module    *Module
-	Callbacks DbusInterface
-	Protocol  string
+	conn         *dbus.Conn
+	Protocol     *Protocol
+	ProtocolName string
+	Log          *logging.Logger
 }
 
-var log = logging.MustGetLogger("dbus-adapter")
+func isNil(i interface{}) bool {
+	return i == nil || reflect.ValueOf(i).IsNil()
+}
 
 // InitDbus dbus initialization
 func (dc *Dbus) InitDbus() bool {
+	if dc.Log == nil {
+		dc.Log = logging.MustGetLogger("dbus-adapter")
+	}
 	conn, err := dbus.SystemBus()
 	if err != nil {
-		log.Error("Fail to request Dbus systembus", err)
+		dc.Log.Error("Fail to request Dbus systembus", err)
 		return false
 	}
 
-	dbusName := dbusNamePrefix + dc.Protocol
+	dbusName := dbusNamePrefix + dc.ProtocolName
 	reply, err := conn.RequestName(dbusName, dbus.NameFlagReplaceExisting|dbus.NameFlagDoNotQueue)
 	if err != nil {
-		log.Error("Fail to request Dbus name", err)
+		dc.Log.Error("Fail to request Dbus name", err)
 		return false
 	}
 
 	if reply != dbus.RequestNameReplyPrimaryOwner {
-		log.Warning(os.Stderr, " Dbus name is already taken")
+		dc.Log.Warning(os.Stderr, " Dbus name is already taken")
 	}
 
 	dc.conn = conn
-	log.Info("Connected on DBus")
+	dc.Log.Info("Connected on DBus")
 
-	dc.signalListener()
+	var ret bool
+	dc.Protocol, ret = dc.ExportProtocolObject(dc.ProtocolName)
 
-	module, _ := dc.ExportModuleObject(dc.Protocol)
-	dc.module = module
-
-	return true
-}
-
-func (dc *Dbus) signalListener() {
-	sigc := make(chan *dbus.Signal, 1)
-	dc.conn.Signal(sigc)
-
-	dc.conn.AddMatchSignal(
-		dbus.WithMatchInterface(dbusInterface),
-		dbus.WithMatchMember(signalAddDevice))
-
-	dc.conn.AddMatchSignal(
-		dbus.WithMatchInterface(dbusInterface),
-		dbus.WithMatchMember(signalRemoveDevice))
-
-	go func() {
-		for signal := range sigc {
-			if !strings.HasPrefix(string(signal.Path), dbusPathPrefix+dc.Protocol) {
-				continue
-			}
-
-			switch signal.Name {
-			case dbusInterface + "." + signalAddDevice:
-				dc.handleSignalAddDevice(signal)
-			case dbusInterface + "." + signalRemoveDevice:
-				dc.handleSignalRemoveDevice(signal)
-			}
-		}
-	}()
+	return ret
 }
 
 // Ready set the Module object parameter "ready" to true
 func (dc *Dbus) Ready() {
-	if dc.module != nil {
-		dc.module.setReady()
+	if dc.Protocol != nil {
+		dc.Protocol.setReady()
 	}
 }
