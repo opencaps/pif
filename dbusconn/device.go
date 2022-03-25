@@ -2,6 +2,7 @@ package dbusconn
 
 import (
 	"sync"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/prop"
@@ -57,6 +58,10 @@ type updateFirmwareInterface interface {
 	UpdateFirmware(*Device, string) (string, *dbus.Error)
 }
 
+type reacheabilityTimeoutInterface interface {
+	ReachabilityWentKo(*Device)
+}
+
 // Device sent over dbus
 type Device struct {
 	sync.Mutex
@@ -70,13 +75,18 @@ type Device struct {
 	Options         map[string]string
 	FirmwareVersion string
 
+	ReachabilityTimeout time.Duration
+
+	timer *time.Timer
+
 	properties *prop.Properties
 	Items      map[string]*Item
 
 	log *logging.Logger
 
-	SetDeviceOptionCb setDeviceOptionInterface
-	UpdateFirmwareCb  updateFirmwareInterface
+	SetDeviceOptionCb      setDeviceOptionInterface
+	UpdateFirmwareCb       updateFirmwareInterface
+	ReacheabilityTimeoutCB reacheabilityTimeoutInterface
 }
 
 // OperabilityState informs if the device work
@@ -102,6 +112,14 @@ func (d *Device) UpdateFirmware(data string) (string, *dbus.Error) {
 	}
 	d.log.Warning("Update firmware not implemented")
 	return "", nil
+}
+
+func (d *Device) reachabilityCBTimeout() {
+	d.SetReachabilityState(ReachabilityKo)
+
+	if !isNil(d.ReacheabilityTimeoutCB) {
+		d.ReacheabilityTimeoutCB.ReachabilityWentKo(d)
+	}
 }
 
 func initDevice(devID string, address string, typeID string, typeVersion string, options map[string]string, p *Protocol) *Device {
@@ -281,6 +299,14 @@ func (device *Device) SetPairingState(state PairingState) {
 func (device *Device) SetReachabilityState(state ReachabilityState) {
 	if device.properties == nil {
 		return
+	}
+
+	if device.ReachabilityTimeout != 0 && state == ReachabilityOk {
+		if device.timer == nil {
+			device.timer = time.AfterFunc(device.ReachabilityTimeout, device.reachabilityCBTimeout)
+		} else {
+			device.timer.Reset(device.ReachabilityTimeout)
+		}
 	}
 
 	oldVariant, err := device.properties.Get(dbusDeviceInterface, propertyReachabilityState)
