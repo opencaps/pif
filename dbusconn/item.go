@@ -10,8 +10,7 @@ import (
 
 const (
 	signalItemAdded   = "ItemAdded"
-	signalItemRemoved = "ItemAdded"
-	signalItemChanged = "ItemChanged"
+	signalItemRemoved = "ItemRemoved"
 
 	propertyTarget = "Target"
 	propertyValue  = "Value"
