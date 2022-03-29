@@ -123,7 +123,7 @@ func (dc *Dbus) emitItemAdded(devID string, item *Item) {
 
 func (dc *Dbus) emitItemRemoved(devID string, itemID string) {
 	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + devID + "/" + itemID)
-	dc.conn.Emit(path, dbusItemInterface+"."+signalDeviceRemoved)
+	dc.conn.Emit(path, dbusItemInterface+"."+signalItemRemoved)
 }
 
 // SetReachabilityState set the value of the property ReachabilityState
