@@ -31,8 +31,7 @@ type Protocol struct {
 	sync.Mutex
 }
 
-// ExportProtocolObject Initializes and exports the Protocol object on DBus
-func (dc *Dbus) ExportProtocolObject(protocol string) (*Protocol, bool) {
+func (dc *Dbus) exportProtocolObject(protocol string) (*Protocol, bool) {
 	if dc.conn == nil {
 		dc.Log.Warning("Unable to export Protocol dbus object because dbus connection nil")
 		return nil, false
@@ -65,7 +64,7 @@ func (p *Protocol) setReady() {
 	p.Unlock()
 }
 
-// IsReady dbus method to known is the protocol is ready or not
+// IsReady dbus method to know if the protocol is ready or not
 func (p *Protocol) IsReady() (bool, *dbus.Error) {
 	p.Lock()
 	var ready = p.ready
@@ -74,6 +73,7 @@ func (p *Protocol) IsReady() (bool, *dbus.Error) {
 	return ready, nil
 }
 
+//AddDevice is the dbus method to add a new device
 func (p *Protocol) AddDevice(devID string, comID string, typeID string, typeVersion string, options map[string]string) (bool, *dbus.Error) {
 	p.Lock()
 	_, alreadyAdded := p.Devices[devID]
@@ -90,6 +90,7 @@ func (p *Protocol) AddDevice(devID string, comID string, typeID string, typeVers
 	return alreadyAdded, nil
 }
 
+//RemoveDevice is the dbus method to remove a device
 func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
 	p.Lock()
 	device, devicePresent := p.Devices[devID]

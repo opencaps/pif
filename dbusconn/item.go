@@ -24,7 +24,7 @@ type setItemTargetInterface interface {
 	SetItemTarget(*Item, []byte) *dbus.Error
 }
 
-// Item struct
+// Item object structure
 type Item struct {
 	ItemID      string
 	Mac         string
@@ -55,8 +55,7 @@ func (i *Item) setItemTarget(c *prop.Change) *dbus.Error {
 	return nil
 }
 
-// InitItem to init an Item struct
-func InitItem(itemID string, typeID string, typeVersion string, options map[string]string, dev *Device) *Item {
+func initItem(itemID string, typeID string, typeVersion string, options map[string]string, dev *Device) *Item {
 	return &Item{
 		ItemID:      itemID,
 		Mac:         dev.Address,
@@ -68,8 +67,7 @@ func InitItem(itemID string, typeID string, typeVersion string, options map[stri
 	}
 }
 
-// ExportItemOnDbus export an item on dbus
-func (dc *Dbus) ExportItemOnDbus(devID string, item *Item) {
+func (dc *Dbus) exportItemOnDbus(devID string, item *Item) {
 	if dc.conn == nil {
 		dc.Log.Warning("Unable to export dbus object because dbus connection nil")
 	}

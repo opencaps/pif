@@ -29,7 +29,7 @@ func isNil(i interface{}) bool {
 	return i == nil || reflect.ValueOf(i).IsNil()
 }
 
-// InitDbus dbus initialization
+// InitDbus initalizes dbus connection
 func (dc *Dbus) InitDbus() bool {
 	if dc.Log == nil {
 		dc.Log = logging.MustGetLogger("dbus-adapter")
@@ -55,7 +55,7 @@ func (dc *Dbus) InitDbus() bool {
 	dc.Log.Info("Connected on DBus")
 
 	var ret bool
-	dc.Protocol, ret = dc.ExportProtocolObject(dc.ProtocolName)
+	dc.Protocol, ret = dc.exportProtocolObject(dc.ProtocolName)
 
 	return ret
 }

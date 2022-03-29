@@ -62,7 +62,7 @@ type reacheabilityTimeoutInterface interface {
 	ReachabilityWentKo(*Device)
 }
 
-// Device sent over dbus
+// Device object structure
 type Device struct {
 	sync.Mutex
 
@@ -92,7 +92,7 @@ type Device struct {
 // OperabilityState informs if the device work
 type OperabilityState string
 
-// PairingState informs if the state of the pairing
+// PairingState informs the state of the pairing
 type PairingState string
 
 // ReachabilityState informs if the device is reachable
@@ -106,6 +106,7 @@ func (d *Device) setDeviceOptions(c *prop.Change) *dbus.Error {
 	return nil
 }
 
+//UpdateFirmware is the dbus method to update the firmware of the device
 func (d *Device) UpdateFirmware(data string) (string, *dbus.Error) {
 	if !isNil(d.UpdateFirmwareCb) {
 		return d.UpdateFirmwareCb.UpdateFirmware(d, data)
@@ -135,7 +136,6 @@ func initDevice(devID string, address string, typeID string, typeVersion string,
 	}
 }
 
-// EmitDeviceAdded to call when a device is added
 func (dc *Dbus) emitDeviceAdded(device *Device) {
 	args := make([]interface{}, 4)
 	args[0] = device.Address
@@ -146,13 +146,11 @@ func (dc *Dbus) emitDeviceAdded(device *Device) {
 	dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceAdded, args...)
 }
 
-// EmitDeviceAdded to call when a device is added
 func (dc *Dbus) emitDeviceRemoved(devID string) {
 	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + devID)
 	dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceRemoved)
 }
 
-// ExportDeviceOnDbus export a device on dbus
 func (dc *Dbus) exportDeviceOnDbus(device *Device) {
 	if dc.conn == nil {
 		dc.Log.Warning("Unable to export dbus object because dbus connection nil")
@@ -175,16 +173,16 @@ func (dc *Dbus) exportDeviceOnDbus(device *Device) {
 	dc.Log.Info("Device exported:", path)
 }
 
-// AddItem called to add a new item to this device
+// AddItem adds a new item to device
 func (device *Device) AddItem(itemID string, typeID string, typeVersion string, options map[string]string) (bool, *dbus.Error) {
 	device.log.Info("AddItem called - itemID:", itemID, "typeID:", typeID, "typeVersion:", typeVersion, "options:", options)
 
 	device.Lock()
 	_, itemPresent := device.Items[itemID]
 	if !itemPresent {
-		item := InitItem(itemID, typeID, typeVersion, options, device)
+		item := initItem(itemID, typeID, typeVersion, options, device)
 		device.Items[itemID] = item
-		device.protocol.dc.ExportItemOnDbus(device.DevID, item)
+		device.protocol.dc.exportItemOnDbus(device.DevID, item)
 
 		if !isNil(device.protocol.Callbacks) {
 			go device.protocol.Callbacks.AddItem(item)
@@ -197,7 +195,7 @@ func (device *Device) AddItem(itemID string, typeID string, typeVersion string, 
 	return true, nil
 }
 
-// RemoveItem called to remove an item to this device
+// RemoveItem remove item from device
 func (device *Device) RemoveItem(itemID string) *dbus.Error {
 	device.log.Info("RemoveItem called - itemID:", itemID)
 
