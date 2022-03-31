@@ -31,6 +31,8 @@ type Item struct {
 	TypeID      string
 	TypeVersion string
 	Options     []byte
+	Target      []byte
+	Value       []byte
 	properties  *prop.Properties
 	log         *logging.Logger
 	Device      *Device
@@ -91,19 +93,19 @@ func initItemProp(item *Item) map[string]map[string]*prop.Prop {
 	return map[string]map[string]*prop.Prop{
 		dbusItemInterface: {
 			propertyOptions: {
-				Value:    []byte{},
+				Value:    item.Value,
 				Writable: true,
 				Emit:     prop.EmitTrue,
 				Callback: item.setItemOptions,
 			},
 			propertyTarget: {
-				Value:    []byte{},
+				Value:    item.Target,
 				Writable: true,
 				Emit:     prop.EmitTrue,
 				Callback: item.setItemTarget,
 			},
 			propertyValue: {
-				Value:    []byte{},
+				Value:    item.Options,
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,

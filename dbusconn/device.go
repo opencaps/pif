@@ -75,6 +75,9 @@ type Device struct {
 	TypeVersion     string
 	Options         []byte
 	FirmwareVersion string
+	Operability     OperabilityState
+	PairingState    PairingState
+	Reachability    ReachabilityState
 
 	ReachabilityTimeout time.Duration
 
@@ -126,14 +129,17 @@ func (d *Device) reachabilityCBTimeout() {
 
 func initDevice(devID string, address string, typeID string, typeVersion string, options []byte, p *Protocol) *Device {
 	return &Device{
-		DevID:       devID,
-		Address:     address,
-		TypeID:      typeID,
-		TypeVersion: typeVersion,
-		Options:     options,
-		Items:       make(map[string]*Item),
-		protocol:    p,
-		log:         p.log,
+		DevID:        devID,
+		Address:      address,
+		TypeID:       typeID,
+		TypeVersion:  typeVersion,
+		Options:      options,
+		Reachability: ReachabilityKo,
+		PairingState: PairingUnknown,
+		Operability:  OperabilityUnknown,
+		Items:        make(map[string]*Item),
+		protocol:     p,
+		log:          p.log,
 	}
 }
 
@@ -217,31 +223,31 @@ func initDeviceProp(device *Device) map[string]map[string]*prop.Prop {
 	return map[string]map[string]*prop.Prop{
 		dbusDeviceInterface: {
 			propertyOperabilityState: {
-				Value:    string(OperabilityUnknown),
+				Value:    device.Operability,
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,
 			},
 			propertyPairingState: {
-				Value:    string(PairingUnknown),
+				Value:    device.PairingState,
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,
 			},
 			propertyReachabilityState: {
-				Value:    string(ReachabilityKo),
+				Value:    device.Reachability,
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,
 			},
 			propertyVersion: {
-				Value:    string(""),
+				Value:    device.FirmwareVersion,
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,
 			},
 			propertyOptions: {
-				Value:    []byte{},
+				Value:    device.Options,
 				Writable: true,
 				Emit:     prop.EmitTrue,
 				Callback: device.setDeviceOptions,
@@ -335,7 +341,6 @@ func (device *Device) SetVersion(newVersion string) {
 	}
 
 	device.log.Info("Version of the device", device.DevID, "changed from", device.FirmwareVersion, "to", newVersion)
-	device.FirmwareVersion = newVersion
 	device.properties.SetMust(dbusDeviceInterface, propertyVersion, newVersion)
 }
 
