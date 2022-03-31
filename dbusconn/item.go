@@ -30,7 +30,9 @@ type Item struct {
 	Mac         string
 	TypeID      string
 	TypeVersion string
-	Options     map[string]string
+	Options     []byte
+	Target      []byte
+	Value       []byte
 	properties  *prop.Properties
 	log         *logging.Logger
 	Device      *Device
@@ -55,7 +57,7 @@ func (i *Item) setItemTarget(c *prop.Change) *dbus.Error {
 	return nil
 }
 
-func initItem(itemID string, typeID string, typeVersion string, options map[string]string, dev *Device) *Item {
+func initItem(itemID string, typeID string, typeVersion string, options []byte, dev *Device) *Item {
 	return &Item{
 		ItemID:      itemID,
 		Mac:         dev.Address,
@@ -91,19 +93,19 @@ func initItemProp(item *Item) map[string]map[string]*prop.Prop {
 	return map[string]map[string]*prop.Prop{
 		dbusItemInterface: {
 			propertyOptions: {
-				Value:    item.Options,
+				Value:    item.Value,
 				Writable: true,
 				Emit:     prop.EmitTrue,
 				Callback: item.setItemOptions,
 			},
 			propertyTarget: {
-				Value:    []byte{},
+				Value:    item.Target,
 				Writable: true,
 				Emit:     prop.EmitTrue,
 				Callback: item.setItemTarget,
 			},
 			propertyValue: {
-				Value:    []byte{},
+				Value:    item.Options,
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,
@@ -149,20 +151,23 @@ func (item *Item) SetValue(value []byte) {
 }
 
 // SetOption set the value of the property Option
-func (item *Item) SetOption(key string, newValue string) {
-	oldVal := "empty"
+func (item *Item) SetOption(options []byte) {
 	if item.properties == nil {
 		return
 	}
 
-	if val, ok := item.Options[key]; ok {
-		if val == newValue {
-			return
-		}
-		oldVal = val
+	oldVariant, err := item.properties.Get(dbusItemInterface, propertyOptions)
+
+	if err != nil {
+		return
 	}
 
-	item.log.Info("Option", key, "of the item", item.ItemID, "changed from", oldVal, "to", newValue)
-	item.Options[key] = newValue
-	item.properties.SetMust(dbusItemInterface, propertyOptions, item.Options)
+	oldState := oldVariant.Value().([]byte)
+	newState := []byte(options)
+	if bytes.Equal(oldState, newState) {
+		return
+	}
+
+	item.log.Info("propertyOptions of the item", item.ItemID, "changed from", oldState, "to", newState)
+	item.properties.SetMust(dbusItemInterface, propertyOptions, newState)
 }

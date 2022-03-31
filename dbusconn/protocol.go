@@ -74,7 +74,7 @@ func (p *Protocol) IsReady() (bool, *dbus.Error) {
 }
 
 //AddDevice is the dbus method to add a new device
-func (p *Protocol) AddDevice(devID string, comID string, typeID string, typeVersion string, options map[string]string) (bool, *dbus.Error) {
+func (p *Protocol) AddDevice(devID string, comID string, typeID string, typeVersion string, options []byte) (bool, *dbus.Error) {
 	p.Lock()
 	_, alreadyAdded := p.Devices[devID]
 	if !alreadyAdded {
