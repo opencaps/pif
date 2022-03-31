@@ -1,6 +1,7 @@
 package dbusconn
 
 import (
+	"bytes"
 	"sync"
 	"time"
 
@@ -72,7 +73,7 @@ type Device struct {
 	Address         string
 	TypeID          string
 	TypeVersion     string
-	Options         map[string]string
+	Options         []byte
 	FirmwareVersion string
 
 	ReachabilityTimeout time.Duration
@@ -123,7 +124,7 @@ func (d *Device) reachabilityCBTimeout() {
 	}
 }
 
-func initDevice(devID string, address string, typeID string, typeVersion string, options map[string]string, p *Protocol) *Device {
+func initDevice(devID string, address string, typeID string, typeVersion string, options []byte, p *Protocol) *Device {
 	return &Device{
 		DevID:       devID,
 		Address:     address,
@@ -174,7 +175,7 @@ func (dc *Dbus) exportDeviceOnDbus(device *Device) {
 }
 
 // AddItem adds a new item to device
-func (device *Device) AddItem(itemID string, typeID string, typeVersion string, options map[string]string) (bool, *dbus.Error) {
+func (device *Device) AddItem(itemID string, typeID string, typeVersion string, options []byte) (bool, *dbus.Error) {
 	device.log.Info("AddItem called - itemID:", itemID, "typeID:", typeID, "typeVersion:", typeVersion, "options:", options)
 
 	device.Lock()
@@ -240,7 +241,7 @@ func initDeviceProp(device *Device) map[string]map[string]*prop.Prop {
 				Callback: nil,
 			},
 			propertyOptions: {
-				Value:    device.Options,
+				Value:    []byte{},
 				Writable: true,
 				Emit:     prop.EmitTrue,
 				Callback: device.setDeviceOptions,
@@ -339,20 +340,23 @@ func (device *Device) SetVersion(newVersion string) {
 }
 
 // SetOption set the value of the property Option
-func (device *Device) SetOption(key string, newValue string) {
-	oldVal := "empty"
+func (device *Device) SetOption(options []byte) {
 	if device.properties == nil {
 		return
 	}
 
-	if val, ok := device.Options[key]; ok {
-		if val == newValue {
-			return
-		}
-		oldVal = val
+	oldVariant, err := device.properties.Get(dbusDeviceInterface, propertyOptions)
+
+	if err != nil {
+		return
 	}
 
-	device.log.Info("Option", key, "of the device", device.DevID, "changed from", oldVal, "to", newValue)
-	device.Options[key] = newValue
-	device.properties.SetMust(dbusDeviceInterface, propertyOptions, device.Options)
+	oldState := oldVariant.Value().([]byte)
+	newState := []byte(options)
+	if bytes.Equal(oldState, newState) {
+		return
+	}
+
+	device.log.Info("propertyOptions of the device", device.DevID, "changed from", oldState, "to", newState)
+	device.properties.SetMust(dbusDeviceInterface, propertyOptions, newState)
 }
