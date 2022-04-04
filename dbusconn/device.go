@@ -268,14 +268,13 @@ func (device *Device) SetOperabilityState(state OperabilityState) {
 		return
 	}
 
-	oldState := oldVariant.Value().(string)
-	newState := string(state)
-	if oldState == newState {
+	oldState := oldVariant.Value().(OperabilityState)
+	if oldState == state {
 		return
 	}
 
-	device.log.Info("OperabilityState of the device", device.DevID, "changed from", oldState, "to", newState)
-	device.properties.SetMust(dbusDeviceInterface, propertyOperabilityState, newState)
+	device.log.Info("OperabilityState of the device", device.DevID, "changed from", oldState, "to", state)
+	device.properties.SetMust(dbusDeviceInterface, propertyOperabilityState, state)
 }
 
 // SetPairingState set the value of the property PairingState
@@ -290,14 +289,13 @@ func (device *Device) SetPairingState(state PairingState) {
 		return
 	}
 
-	oldState := oldVariant.Value().(string)
-	newState := string(state)
-	if oldState == newState {
+	oldState := oldVariant.Value().(PairingState)
+	if oldState == state {
 		return
 	}
 
-	device.log.Info("propertyPairingState of the device", device.DevID, "changed from", oldState, "to", newState)
-	device.properties.SetMust(dbusDeviceInterface, propertyPairingState, newState)
+	device.log.Info("propertyPairingState of the device", device.DevID, "changed from", oldState, "to", state)
+	device.properties.SetMust(dbusDeviceInterface, propertyPairingState, state)
 }
 
 // SetReachabilityState set the value of the property ReachabilityState
@@ -320,14 +318,13 @@ func (device *Device) SetReachabilityState(state ReachabilityState) {
 		return
 	}
 
-	oldState := oldVariant.Value().(string)
-	newState := string(state)
-	if oldState == newState {
+	oldState := oldVariant.Value().(ReachabilityState)
+	if oldState == state {
 		return
 	}
 
-	device.log.Info("propertyReachabilityState of the device", device.DevID, "changed from", oldState, "to", newState)
-	device.properties.SetMust(dbusDeviceInterface, propertyReachabilityState, newState)
+	device.log.Info("propertyReachabilityState of the device", device.DevID, "changed from", oldState, "to", state)
+	device.properties.SetMust(dbusDeviceInterface, propertyReachabilityState, state)
 }
 
 // SetVersion set the value of the property Version
