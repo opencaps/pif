@@ -104,9 +104,10 @@ type ReachabilityState string
 
 func (d *Device) setDeviceOptions(c *prop.Change) *dbus.Error {
 	if !isNil(d.SetDeviceOptionCb) {
-		return d.SetDeviceOptionCb.SetDeviceOptions(d)
+		go d.SetDeviceOptionCb.SetDeviceOptions(d)
+	} else {
+		d.log.Warning("No Options")
 	}
-	d.log.Warning("No Options")
 	return nil
 }
 
