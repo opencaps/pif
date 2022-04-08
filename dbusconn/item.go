@@ -43,17 +43,19 @@ type Item struct {
 
 func (i *Item) setItemOptions(c *prop.Change) *dbus.Error {
 	if !isNil(i.SetItemOptionCb) {
-		return i.SetItemOptionCb.SetItemOptions(i)
+		go i.SetItemOptionCb.SetItemOptions(i)
+	} else {
+		i.log.Warning("No Options")
 	}
-	i.log.Warning("No Options")
 	return nil
 }
 
 func (i *Item) setItemTarget(c *prop.Change) *dbus.Error {
 	if !isNil(i.SetItemTargetCb) {
-		return i.SetItemTargetCb.SetItemTarget(i, c.Value.([]byte))
+		go i.SetItemTargetCb.SetItemTarget(i, c.Value.([]byte))
+	} else {
+		i.log.Warning("No Target callback")
 	}
-	i.log.Warning("No Target callback")
 	return nil
 }
 
@@ -128,7 +130,7 @@ func (dc *Dbus) emitItemRemoved(devID string, itemID string) {
 	dc.conn.Emit(path, dbusItemInterface+"."+signalItemRemoved)
 }
 
-// SetReachabilityState set the value of the property ReachabilityState
+// SetValue set the value of the property Value
 func (item *Item) SetValue(value []byte) {
 	if item.properties == nil {
 		return
