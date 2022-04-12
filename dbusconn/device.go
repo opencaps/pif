@@ -15,11 +15,10 @@ const (
 	signalDeviceAdded   = "DeviceAdded"
 	signalDeviceRemoved = "DeviceRemoved"
 
-	propertyOperabilityState  = "OperabilityState"
-	propertyPairingState      = "PairingState"
-	propertyReachabilityState = "ReachabilityState"
-	propertyVersion           = "Version"
-	propertyOptions           = "Options"
+	propertyOperabilityState = "OperabilityState"
+	propertyPairingState     = "PairingState"
+	propertyVersion          = "Version"
+	propertyOptions          = "Options"
 
 	// OperabilityOk state 'ok' for OperabilityState
 	OperabilityOk OperabilityState = "OK"
@@ -40,15 +39,6 @@ const (
 	PairingUnknown PairingState = "UNKNOWN"
 	// PairingNotNeeded state 'not needed' for PairingState
 	PairingNotNeeded PairingState = "NOT_NEEDED"
-
-	// ReachabilityOk state 'ok' for ReachabilityState
-	ReachabilityOk ReachabilityState = "OK"
-	// ReachabilityKo state 'ko' for ReachabilityState
-	ReachabilityKo ReachabilityState = "KO"
-	// ReachabilityRescue state 'rescue' for ReachabilityState
-	ReachabilityRescue ReachabilityState = "RESCUE"
-	// ReachabilityUnknown state 'unknown' for ReachabilityState
-	ReachabilityUnknown ReachabilityState = "UNKNOWN"
 )
 
 type setDeviceOptionInterface interface {
@@ -59,8 +49,8 @@ type updateFirmwareInterface interface {
 	UpdateFirmware(*Device, string) (string, *dbus.Error)
 }
 
-type reacheabilityTimeoutInterface interface {
-	ReachabilityWentKo(*Device)
+type operabilityTimeoutInterface interface {
+	OperabilityWentKo(*Device)
 }
 
 // Device object structure
@@ -77,9 +67,8 @@ type Device struct {
 	FirmwareVersion string
 	Operability     OperabilityState
 	PairingState    PairingState
-	Reachability    ReachabilityState
 
-	ReachabilityTimeout time.Duration
+	OperabilityTimeout time.Duration
 
 	timer *time.Timer
 
@@ -88,9 +77,9 @@ type Device struct {
 
 	log *logging.Logger
 
-	SetDeviceOptionCb      setDeviceOptionInterface
-	UpdateFirmwareCb       updateFirmwareInterface
-	ReacheabilityTimeoutCB reacheabilityTimeoutInterface
+	SetDeviceOptionCb    setDeviceOptionInterface
+	UpdateFirmwareCb     updateFirmwareInterface
+	OperabilityTimeoutCB operabilityTimeoutInterface
 }
 
 // OperabilityState informs if the device work
@@ -98,9 +87,6 @@ type OperabilityState string
 
 // PairingState informs the state of the pairing
 type PairingState string
-
-// ReachabilityState informs if the device is reachable
-type ReachabilityState string
 
 func (d *Device) setDeviceOptions(c *prop.Change) *dbus.Error {
 	if !isNil(d.SetDeviceOptionCb) {
@@ -120,11 +106,11 @@ func (d *Device) UpdateFirmware(data string) (string, *dbus.Error) {
 	return "", nil
 }
 
-func (d *Device) reachabilityCBTimeout() {
-	d.SetReachabilityState(ReachabilityKo)
+func (d *Device) operabilityCBTimeout() {
+	d.SetOperabilityState(OperabilityKo)
 
-	if !isNil(d.ReacheabilityTimeoutCB) {
-		d.ReacheabilityTimeoutCB.ReachabilityWentKo(d)
+	if !isNil(d.OperabilityTimeoutCB) {
+		d.OperabilityTimeoutCB.OperabilityWentKo(d)
 	}
 }
 
@@ -135,7 +121,6 @@ func initDevice(devID string, address string, typeID string, typeVersion string,
 		TypeID:       typeID,
 		TypeVersion:  typeVersion,
 		Options:      options,
-		Reachability: ReachabilityKo,
 		PairingState: PairingUnknown,
 		Operability:  OperabilityUnknown,
 		Items:        make(map[string]*Item),
@@ -235,12 +220,6 @@ func initDeviceProp(device *Device) map[string]map[string]*prop.Prop {
 				Emit:     prop.EmitTrue,
 				Callback: nil,
 			},
-			propertyReachabilityState: {
-				Value:    device.Reachability,
-				Writable: false,
-				Emit:     prop.EmitTrue,
-				Callback: nil,
-			},
 			propertyVersion: {
 				Value:    device.FirmwareVersion,
 				Writable: false,
@@ -261,6 +240,14 @@ func initDeviceProp(device *Device) map[string]map[string]*prop.Prop {
 func (device *Device) SetOperabilityState(state OperabilityState) {
 	if device.properties == nil {
 		return
+	}
+
+	if device.OperabilityTimeout != 0 && state == OperabilityOk {
+		if device.timer == nil {
+			device.timer = time.AfterFunc(device.OperabilityTimeout, device.operabilityCBTimeout)
+		} else {
+			device.timer.Reset(device.OperabilityTimeout)
+		}
 	}
 
 	oldVariant, err := device.properties.Get(dbusDeviceInterface, propertyOperabilityState)
@@ -297,35 +284,6 @@ func (device *Device) SetPairingState(state PairingState) {
 
 	device.log.Info("propertyPairingState of the device", device.DevID, "changed from", oldState, "to", state)
 	device.properties.SetMust(dbusDeviceInterface, propertyPairingState, state)
-}
-
-// SetReachabilityState set the value of the property ReachabilityState
-func (device *Device) SetReachabilityState(state ReachabilityState) {
-	if device.properties == nil {
-		return
-	}
-
-	if device.ReachabilityTimeout != 0 && state == ReachabilityOk {
-		if device.timer == nil {
-			device.timer = time.AfterFunc(device.ReachabilityTimeout, device.reachabilityCBTimeout)
-		} else {
-			device.timer.Reset(device.ReachabilityTimeout)
-		}
-	}
-
-	oldVariant, err := device.properties.Get(dbusDeviceInterface, propertyReachabilityState)
-
-	if err != nil {
-		return
-	}
-
-	oldState := oldVariant.Value().(ReachabilityState)
-	if oldState == state {
-		return
-	}
-
-	device.log.Info("propertyReachabilityState of the device", device.DevID, "changed from", oldState, "to", state)
-	device.properties.SetMust(dbusDeviceInterface, propertyReachabilityState, state)
 }
 
 // SetVersion set the value of the property Version

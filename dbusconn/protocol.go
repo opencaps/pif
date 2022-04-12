@@ -9,13 +9,22 @@ import (
 )
 
 const (
-	propertyLogLevel    = "LogLevel"
+	propertyLogLevel          = "LogLevel"
+	propertyReachabilityState = "ReachabilityState"
+
 	signalBridgeAdded   = "BridgeAdded"
 	signalBridgeRemoved = "BridgeRemoved"
+
+	// ReachabilityOk state 'ok' for ReachabilityState
+	ReachabilityOk ReachabilityState = "OK"
+	// ReachabilityKo state 'ko' for ReachabilityState
+	ReachabilityKo ReachabilityState = "KO"
+	// ReachabilityUnknown state 'unknown' for ReachabilityState
+	ReachabilityUnknown ReachabilityState = "UNKNOWN"
 )
 
-// OperabilityState informs if the device work
-type BridgeState string
+// ReachabilityState informs if the device is reachable
+type ReachabilityState string
 
 // ProtocolInterface callback called from Protocol Dbus Methods
 type ProtocolInterface interface {
@@ -27,11 +36,14 @@ type ProtocolInterface interface {
 
 // Protocol is a dbus object which represents the states of a protocol
 type Protocol struct {
-	Callbacks ProtocolInterface
-	dc        *Dbus
-	Devices   map[string]*Device
-	ready     bool
-	log       *logging.Logger
+	Callbacks    ProtocolInterface
+	dc           *Dbus
+	Devices      map[string]*Device
+	ready        bool
+	log          *logging.Logger
+	properties   *prop.Properties
+	Reachability ReachabilityState
+	protocolName string
 	sync.Mutex
 }
 
@@ -55,16 +67,24 @@ func (dc *Dbus) exportRootProtocolObject(protocol string) (*Protocol, bool) {
 		return nil, false
 	}
 
-	var proto = &Protocol{ready: false, dc: dc, Devices: make(map[string]*Device), log: dc.Log}
+	var proto = &Protocol{ready: false, dc: dc, Devices: make(map[string]*Device), log: dc.Log, protocolName: protocol, Reachability: ReachabilityUnknown}
 	path := dbus.ObjectPath(dbusPathPrefix + protocol)
 
 	// properties
-	propsSpec := initProtocolProp(&dc.RootProtocol)
+	rootPropsSpec := initRootProtocolProp(&dc.RootProtocol)
+	rootProperties, err := prop.Export(dc.conn, path, rootPropsSpec)
+	if err == nil {
+		dc.RootProtocol.properties = rootProperties
+	} else {
+		proto.log.Error("Fail to export the properties of the root protocol", protocol, err)
+	}
+
+	propsSpec := initProtocolProp(proto)
 	properties, err := prop.Export(dc.conn, path, propsSpec)
 	if err == nil {
-		dc.RootProtocol.properties = properties
+		proto.properties = properties
 	} else {
-		proto.log.Error("Fail to export the properties of the protocol", proto, err)
+		proto.log.Error("Fail to export the properties of the protocol", protocol, err)
 	}
 
 	err = dc.conn.Export(proto, path, dbusProtocolInterface)
@@ -149,15 +169,23 @@ func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
 
 //AddBridge is the dbus method to add a new bridge
 func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
+	protoName := r.dc.ProtocolName + "_" + bridgeID
 	r.Protocol.Lock()
 	_, alreadyAdded := r.dc.Bridges[bridgeID]
 	if !alreadyAdded {
-		var proto = &Protocol{ready: false, dc: r.dc, Devices: make(map[string]*Device), log: r.dc.Log}
-		path := dbus.ObjectPath(dbusPathPrefix + r.dc.ProtocolName + "_" + bridgeID)
+		var proto = &Protocol{ready: false, dc: r.dc, Devices: make(map[string]*Device), log: r.dc.Log, protocolName: protoName, Reachability: ReachabilityUnknown}
+		path := dbus.ObjectPath(dbusPathPrefix + protoName)
 
 		err := r.dc.conn.Export(proto, path, dbusProtocolInterface)
 		if err != nil {
 			proto.log.Warning("Fail to export Module dbus object", err)
+		}
+		propsSpec := initProtocolProp(proto)
+		properties, err := prop.Export(r.dc.conn, path, propsSpec)
+		if err == nil {
+			proto.properties = properties
+		} else {
+			proto.log.Error("Fail to export the properties of the protocol", protoName, err)
 		}
 		var bridge = &BridgeProto{Protocol: proto, dc: r.dc}
 		r.dc.Bridges[bridgeID] = bridge
@@ -202,7 +230,7 @@ func (r *RootProto) setLogLevel(c *prop.Change) *dbus.Error {
 	return nil
 }
 
-func initProtocolProp(r *RootProto) map[string]map[string]*prop.Prop {
+func initRootProtocolProp(r *RootProto) map[string]map[string]*prop.Prop {
 	return map[string]map[string]*prop.Prop{
 		dbusProtocolInterface: {
 			propertyLogLevel: {
@@ -213,4 +241,38 @@ func initProtocolProp(r *RootProto) map[string]map[string]*prop.Prop {
 			},
 		},
 	}
+}
+
+func initProtocolProp(p *Protocol) map[string]map[string]*prop.Prop {
+	return map[string]map[string]*prop.Prop{
+		dbusProtocolInterface: {
+			propertyOperabilityState: {
+				Value:    p.Reachability,
+				Writable: false,
+				Emit:     prop.EmitTrue,
+				Callback: nil,
+			},
+		},
+	}
+}
+
+// SetReachabilityState set the value of the property ReachabilityState
+func (p *Protocol) SetReachabilityState(state ReachabilityState) {
+	if p.properties == nil {
+		return
+	}
+
+	oldVariant, err := p.properties.Get(dbusProtocolInterface, propertyReachabilityState)
+
+	if err != nil {
+		return
+	}
+
+	oldState := oldVariant.Value().(ReachabilityState)
+	if oldState == state {
+		return
+	}
+
+	p.log.Info("propertyReachabilityState of the protocol", p.protocolName, "changed from", oldState, "to", state)
+	p.properties.SetMust(dbusProtocolInterface, propertyReachabilityState, state)
 }
