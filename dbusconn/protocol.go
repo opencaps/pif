@@ -267,7 +267,7 @@ func initRootProtocolProp(r *RootProto) map[string]map[string]*prop.Prop {
 func initProtocolProp(p *Protocol) map[string]map[string]*prop.Prop {
 	return map[string]map[string]*prop.Prop{
 		dbusProtocolInterface: {
-			propertyOperabilityState: {
+			propertyReachabilityState: {
 				Value:    p.Reachability,
 				Writable: false,
 				Emit:     prop.EmitTrue,
