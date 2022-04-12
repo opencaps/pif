@@ -115,12 +115,6 @@ func (dc *Dbus) exportRootProtocolObject(protocol string) (*Protocol, bool) {
 	return proto, true
 }
 
-func (p *Protocol) setReady() {
-	p.Lock()
-	p.ready = true
-	p.Unlock()
-}
-
 // IsReady dbus method to know if the protocol is ready or not
 func (p *Protocol) IsReady() (bool, *dbus.Error) {
 	p.Lock()
@@ -179,6 +173,15 @@ func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
 	p.dc.emitDeviceRemoved(devID)
 	p.Unlock()
 	return nil
+}
+
+// Ready set the Protocol object parameter "ready" to true
+func (p *Protocol) Ready() {
+	if p != nil {
+		p.Lock()
+		p.ready = true
+		p.Unlock()
+	}
 }
 
 //AddBridge is the dbus method to add a new bridge

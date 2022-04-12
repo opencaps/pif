@@ -62,10 +62,3 @@ func (dc *Dbus) InitDbus() bool {
 
 	return ret
 }
-
-// Ready set the Module object parameter "ready" to true
-func (dc *Dbus) Ready() {
-	if dc.RootProtocol.Protocol != nil {
-		dc.RootProtocol.Protocol.setReady()
-	}
-}
