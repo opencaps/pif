@@ -34,6 +34,12 @@ type ProtocolInterface interface {
 	RemoveItem(string, string)
 }
 
+// ProtocolInterface callback called from Protocol Dbus Methods
+type BridgeInterface interface {
+	AddBridge(*Protocol)
+	RemoveBridge(string)
+}
+
 // Protocol is a dbus object which represents the states of a protocol
 type Protocol struct {
 	Callbacks    ProtocolInterface
@@ -50,6 +56,7 @@ type Protocol struct {
 // RootProtocol is a dbus object which represents the states of the root protocol
 type RootProto struct {
 	Protocol   *Protocol
+	Callbacks  BridgeInterface
 	dc         *Dbus
 	properties *prop.Properties
 	log        *logging.Logger
@@ -197,6 +204,9 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 		}
 		var bridge = &BridgeProto{Protocol: proto, dc: r.dc}
 		r.dc.Bridges[bridgeID] = bridge
+		if !isNil(r.Callbacks) {
+			go r.Callbacks.AddBridge(proto)
+		}
 		r.dc.emitBridgeAdded(bridgeID)
 	}
 	r.Protocol.Unlock()
@@ -217,6 +227,9 @@ func (r *RootProto) RemoveBridge(bridgeID string) *dbus.Error {
 
 	for device := range bridge.Protocol.Devices {
 		bridge.Protocol.RemoveDevice(device)
+	}
+	if !isNil(r.Callbacks) {
+		go r.Callbacks.RemoveBridge(bridgeID)
 	}
 	bridge.Protocol.Unlock()
 	delete(r.dc.Bridges, bridgeID)
