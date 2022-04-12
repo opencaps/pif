@@ -20,7 +20,8 @@ const (
 // Dbus exported structure
 type Dbus struct {
 	conn         *dbus.Conn
-	Protocol     *Protocol
+	RootProtocol RootProto
+	Bridges      map[string]*BridgeProto
 	ProtocolName string
 	Log          *logging.Logger
 }
@@ -55,14 +56,16 @@ func (dc *Dbus) InitDbus() bool {
 	dc.Log.Info("Connected on DBus")
 
 	var ret bool
-	dc.Protocol, ret = dc.exportProtocolObject(dc.ProtocolName)
+	dc.RootProtocol.dc = dc
+	dc.RootProtocol.log = dc.Log
+	dc.RootProtocol.Protocol, ret = dc.exportRootProtocolObject(dc.ProtocolName)
 
 	return ret
 }
 
 // Ready set the Module object parameter "ready" to true
 func (dc *Dbus) Ready() {
-	if dc.Protocol != nil {
-		dc.Protocol.setReady()
+	if dc.RootProtocol.Protocol != nil {
+		dc.RootProtocol.Protocol.setReady()
 	}
 }

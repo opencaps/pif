@@ -9,8 +9,13 @@ import (
 )
 
 const (
-	propertyLogLevel = "LogLevel"
+	propertyLogLevel    = "LogLevel"
+	signalBridgeAdded   = "BridgeAdded"
+	signalBridgeRemoved = "BridgeRemoved"
 )
+
+// OperabilityState informs if the device work
+type BridgeState string
 
 // ProtocolInterface callback called from Protocol Dbus Methods
 type ProtocolInterface interface {
@@ -20,18 +25,31 @@ type ProtocolInterface interface {
 	RemoveItem(string, string)
 }
 
-// Protocol is a dbus object which represents the states of the module
+// Protocol is a dbus object which represents the states of a protocol
 type Protocol struct {
-	Callbacks  ProtocolInterface
-	dc         *Dbus
-	Devices    map[string]*Device
-	ready      bool
-	properties *prop.Properties
-	log        *logging.Logger
+	Callbacks ProtocolInterface
+	dc        *Dbus
+	Devices   map[string]*Device
+	ready     bool
+	log       *logging.Logger
 	sync.Mutex
 }
 
-func (dc *Dbus) exportProtocolObject(protocol string) (*Protocol, bool) {
+// RootProtocol is a dbus object which represents the states of the root protocol
+type RootProto struct {
+	Protocol   *Protocol
+	dc         *Dbus
+	properties *prop.Properties
+	log        *logging.Logger
+}
+
+// Protocol is a dbus object which represents the states of a bridge protocol
+type BridgeProto struct {
+	Protocol *Protocol
+	dc       *Dbus
+}
+
+func (dc *Dbus) exportRootProtocolObject(protocol string) (*Protocol, bool) {
 	if dc.conn == nil {
 		dc.Log.Warning("Unable to export Protocol dbus object because dbus connection nil")
 		return nil, false
@@ -41,15 +59,20 @@ func (dc *Dbus) exportProtocolObject(protocol string) (*Protocol, bool) {
 	path := dbus.ObjectPath(dbusPathPrefix + protocol)
 
 	// properties
-	propsSpec := initProtocolProp(proto)
+	propsSpec := initProtocolProp(&dc.RootProtocol)
 	properties, err := prop.Export(dc.conn, path, propsSpec)
 	if err == nil {
-		proto.properties = properties
+		dc.RootProtocol.properties = properties
 	} else {
 		proto.log.Error("Fail to export the properties of the protocol", proto, err)
 	}
 
 	err = dc.conn.Export(proto, path, dbusProtocolInterface)
+	if err != nil {
+		proto.log.Warning("Fail to export Module dbus object", err)
+		return nil, false
+	}
+	err = dc.conn.Export(dc.RootProtocol, path, dbusProtocolInterface)
 	if err != nil {
 		proto.log.Warning("Fail to export Module dbus object", err)
 		return nil, false
@@ -71,6 +94,16 @@ func (p *Protocol) IsReady() (bool, *dbus.Error) {
 	p.Unlock()
 
 	return ready, nil
+}
+
+func (dc *Dbus) emitBridgeAdded(bridgeID string) {
+	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "_" + bridgeID)
+	dc.conn.Emit(path, dbusProtocolInterface+"."+signalBridgeAdded)
+}
+
+func (dc *Dbus) emitBridgeRemoved(bridgeID string) {
+	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "_" + bridgeID)
+	dc.conn.Emit(path, dbusProtocolInterface+"."+signalBridgeRemoved)
 }
 
 //AddDevice is the dbus method to add a new device
@@ -114,27 +147,69 @@ func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
 	return nil
 }
 
-func (p *Protocol) setLogLevel(c *prop.Change) *dbus.Error {
+//AddBridge is the dbus method to add a new bridge
+func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
+	r.Protocol.Lock()
+	_, alreadyAdded := r.dc.Bridges[bridgeID]
+	if !alreadyAdded {
+		var proto = &Protocol{ready: false, dc: r.dc, Devices: make(map[string]*Device), log: r.dc.Log}
+		path := dbus.ObjectPath(dbusPathPrefix + r.dc.ProtocolName + "_" + bridgeID)
+
+		err := r.dc.conn.Export(proto, path, dbusProtocolInterface)
+		if err != nil {
+			proto.log.Warning("Fail to export Module dbus object", err)
+		}
+		var bridge = &BridgeProto{Protocol: proto, dc: r.dc}
+		r.dc.Bridges[bridgeID] = bridge
+		r.dc.emitBridgeAdded(bridgeID)
+	}
+	r.Protocol.Unlock()
+	return alreadyAdded, nil
+}
+
+//RemoveBridge is the dbus method to remove a bridge
+func (r *RootProto) RemoveBridge(bridgeID string) *dbus.Error {
+
+	r.Protocol.Lock()
+	bridge, bridgePresent := r.dc.Bridges[bridgeID]
+
+	if !bridgePresent {
+		r.Protocol.Unlock()
+		return nil
+	}
+	bridge.Protocol.Lock()
+
+	for device := range bridge.Protocol.Devices {
+		bridge.Protocol.RemoveDevice(device)
+	}
+	bridge.Protocol.Unlock()
+	delete(r.dc.Bridges, bridgeID)
+	r.dc.emitBridgeRemoved(bridgeID)
+	r.Protocol.Unlock()
+	return nil
+}
+
+func (r *RootProto) setLogLevel(c *prop.Change) *dbus.Error {
 	loglevel := c.Value.(string)
 	level, err := logging.LogLevel(loglevel)
 	if err == nil {
-		logging.SetLevel(level, p.dc.Log.Module)
-		p.log.Info("Log level has been set to ", c.Value.(string))
+		logging.SetLevel(level, r.dc.Log.Module)
+		r.log.Info("Log level has been set to ", c.Value.(string))
 		return &dbus.ErrMsgInvalidArg
 	} else {
-		p.log.Error(err)
+		r.log.Error(err)
 	}
 	return nil
 }
 
-func initProtocolProp(p *Protocol) map[string]map[string]*prop.Prop {
+func initProtocolProp(r *RootProto) map[string]map[string]*prop.Prop {
 	return map[string]map[string]*prop.Prop{
 		dbusProtocolInterface: {
 			propertyLogLevel: {
-				Value:    logging.GetLevel(p.log.Module).String(),
+				Value:    logging.GetLevel(r.log.Module).String(),
 				Writable: true,
 				Emit:     prop.EmitTrue,
-				Callback: p.setLogLevel,
+				Callback: r.setLogLevel,
 			},
 		},
 	}
