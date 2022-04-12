@@ -61,13 +61,40 @@ type BridgeProto struct {
 	dc       *Dbus
 }
 
+func (dc *Dbus) newProtocol(name string) (*Protocol, bool) {
+	var proto = &Protocol{ready: false, dc: dc, Devices: make(map[string]*Device), log: dc.Log, protocolName: name, Reachability: ReachabilityUnknown}
+	path := dbus.ObjectPath(dbusPathPrefix + name)
+
+	propsSpec := initProtocolProp(proto)
+	properties, err := prop.Export(dc.conn, path, propsSpec)
+
+	if err == nil {
+		proto.properties = properties
+	} else {
+		proto.log.Error("Fail to export the properties of the protocol", name, err)
+		return nil, false
+	}
+
+	err = dc.conn.Export(proto, path, dbusProtocolInterface)
+	if err != nil {
+		proto.log.Warning("Fail to export Module dbus object", err)
+		return nil, false
+	}
+
+	return proto, true
+}
+
 func (dc *Dbus) exportRootProtocolObject(protocol string) (*Protocol, bool) {
 	if dc.conn == nil {
 		dc.Log.Warning("Unable to export Protocol dbus object because dbus connection nil")
 		return nil, false
 	}
 
-	var proto = &Protocol{ready: false, dc: dc, Devices: make(map[string]*Device), log: dc.Log, protocolName: protocol, Reachability: ReachabilityUnknown}
+	proto, ok := dc.newProtocol(protocol)
+	if !ok {
+		return nil, false
+	}
+
 	path := dbus.ObjectPath(dbusPathPrefix + protocol)
 
 	// properties
@@ -79,19 +106,6 @@ func (dc *Dbus) exportRootProtocolObject(protocol string) (*Protocol, bool) {
 		proto.log.Error("Fail to export the properties of the root protocol", protocol, err)
 	}
 
-	propsSpec := initProtocolProp(proto)
-	properties, err := prop.Export(dc.conn, path, propsSpec)
-	if err == nil {
-		proto.properties = properties
-	} else {
-		proto.log.Error("Fail to export the properties of the protocol", protocol, err)
-	}
-
-	err = dc.conn.Export(proto, path, dbusProtocolInterface)
-	if err != nil {
-		proto.log.Warning("Fail to export Module dbus object", err)
-		return nil, false
-	}
 	err = dc.conn.Export(dc.RootProtocol, path, dbusProtocolInterface)
 	if err != nil {
 		proto.log.Warning("Fail to export Module dbus object", err)
@@ -173,19 +187,10 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 	r.Protocol.Lock()
 	_, alreadyAdded := r.dc.Bridges[bridgeID]
 	if !alreadyAdded {
-		var proto = &Protocol{ready: false, dc: r.dc, Devices: make(map[string]*Device), log: r.dc.Log, protocolName: protoName, Reachability: ReachabilityUnknown}
-		path := dbus.ObjectPath(dbusPathPrefix + protoName)
 
-		err := r.dc.conn.Export(proto, path, dbusProtocolInterface)
-		if err != nil {
-			proto.log.Warning("Fail to export Module dbus object", err)
-		}
-		propsSpec := initProtocolProp(proto)
-		properties, err := prop.Export(r.dc.conn, path, propsSpec)
-		if err == nil {
-			proto.properties = properties
-		} else {
-			proto.log.Error("Fail to export the properties of the protocol", protoName, err)
+		proto, ok := r.dc.newProtocol(protoName)
+		if !ok {
+			return false, &dbus.ErrMsgNoObject
 		}
 		var bridge = &BridgeProto{Protocol: proto, dc: r.dc}
 		r.dc.Bridges[bridgeID] = bridge
