@@ -95,7 +95,7 @@ func initItemProp(item *Item) map[string]map[string]*prop.Prop {
 	return map[string]map[string]*prop.Prop{
 		dbusItemInterface: {
 			propertyOptions: {
-				Value:    item.Value,
+				Value:    item.Options,
 				Writable: true,
 				Emit:     prop.EmitTrue,
 				Callback: item.setItemOptions,
@@ -107,7 +107,7 @@ func initItemProp(item *Item) map[string]map[string]*prop.Prop {
 				Callback: item.setItemTarget,
 			},
 			propertyValue: {
-				Value:    item.Options,
+				Value:    item.Value,
 				Writable: false,
 				Emit:     prop.EmitTrue,
 				Callback: nil,
