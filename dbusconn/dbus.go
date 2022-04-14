@@ -55,10 +55,6 @@ func (dc *Dbus) InitDbus() bool {
 	dc.conn = conn
 	dc.Log.Info("Connected on DBus")
 
-	var ret bool
-	dc.RootProtocol.dc = dc
-	dc.RootProtocol.log = dc.Log
-	dc.RootProtocol.Protocol, ret = dc.exportRootProtocolObject(dc.ProtocolName)
-
-	return ret
+	dc.Bridges = map[string]*BridgeProto{}
+	return dc.exportRootProtocolObject(dc.ProtocolName)
 }

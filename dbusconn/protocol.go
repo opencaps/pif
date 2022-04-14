@@ -68,38 +68,21 @@ type BridgeProto struct {
 	dc       *Dbus
 }
 
-func (dc *Dbus) newProtocol(name string) (*Protocol, bool) {
-	var proto = &Protocol{ready: false, dc: dc, Devices: make(map[string]*Device), log: dc.Log, protocolName: name, Reachability: ReachabilityUnknown}
-	path := dbus.ObjectPath(dbusPathPrefix + name)
-
-	propsSpec := initProtocolProp(proto)
-	properties, err := prop.Export(dc.conn, path, propsSpec)
-
-	if err == nil {
-		proto.properties = properties
-	} else {
-		proto.log.Error("Fail to export the properties of the protocol", name, err)
-		return nil, false
-	}
-
-	err = dc.conn.Export(proto, path, dbusProtocolInterface)
-	if err != nil {
-		proto.log.Warning("Fail to export Module dbus object", err)
-		return nil, false
-	}
-
-	return proto, true
-}
-
-func (dc *Dbus) exportRootProtocolObject(protocol string) (*Protocol, bool) {
+func (dc *Dbus) exportRootProtocolObject(protocol string) bool {
 	if dc.conn == nil {
 		dc.Log.Warning("Unable to export Protocol dbus object because dbus connection nil")
-		return nil, false
+		return false
 	}
 
-	proto, ok := dc.newProtocol(protocol)
-	if !ok {
-		return nil, false
+	dc.RootProtocol.dc = dc
+	dc.RootProtocol.log = dc.Log
+
+	dc.RootProtocol.Protocol = &Protocol{ready: false,
+		dc:           dc,
+		Devices:      make(map[string]*Device),
+		log:          dc.Log,
+		protocolName: protocol,
+		Reachability: ReachabilityUnknown,
 	}
 
 	path := dbus.ObjectPath(dbusPathPrefix + protocol)
@@ -110,16 +93,22 @@ func (dc *Dbus) exportRootProtocolObject(protocol string) (*Protocol, bool) {
 	if err == nil {
 		dc.RootProtocol.properties = rootProperties
 	} else {
-		proto.log.Error("Fail to export the properties of the root protocol", protocol, err)
+		dc.Log.Error("Fail to export the properties of the root protocol", protocol, err)
 	}
 
-	err = dc.conn.Export(dc.RootProtocol, path, dbusProtocolInterface)
+	exportedMethods := make(map[string]interface{})
+	exportedMethods["IsReady"] = dc.RootProtocol.Protocol.IsReady
+	exportedMethods["AddBridge"] = dc.RootProtocol.AddBridge
+	exportedMethods["RemoveBridge"] = dc.RootProtocol.RemoveBridge
+	exportedMethods["AddDevice"] = dc.RootProtocol.Protocol.AddDevice
+	exportedMethods["RemoveDevice"] = dc.RootProtocol.Protocol.RemoveDevice
+
+	err = dc.conn.ExportMethodTable(exportedMethods, path, dbusProtocolInterface)
 	if err != nil {
-		proto.log.Warning("Fail to export Module dbus object", err)
-		return nil, false
+		dc.Log.Warning("Fail to export Module dbus object", err)
+		return false
 	}
-
-	return proto, true
+	return true
 }
 
 // IsReady dbus method to know if the protocol is ready or not
@@ -197,11 +186,28 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 	r.Protocol.Lock()
 	_, alreadyAdded := r.dc.Bridges[bridgeID]
 	if !alreadyAdded {
-
-		proto, ok := r.dc.newProtocol(protoName)
-		if !ok {
-			return false, &dbus.ErrMsgNoObject
+		var proto = &Protocol{ready: false,
+			dc:           r.dc,
+			Devices:      make(map[string]*Device),
+			log:          r.log,
+			protocolName: protoName,
+			Reachability: ReachabilityUnknown}
+		path := dbus.ObjectPath(dbusPathPrefix + protoName)
+		propsSpec := initProtocolProp(proto)
+		properties, err := prop.Export(r.dc.conn, path, propsSpec)
+		if err == nil {
+			proto.properties = properties
+		} else {
+			proto.log.Error("Fail to export the properties of the protocol", protoName, err)
+			return false, &dbus.Error{Name: "Property export", Body: []interface{}{err}}
 		}
+
+		err = r.dc.conn.Export(proto, path, dbusProtocolInterface)
+		if err != nil {
+			proto.log.Warning("Fail to export Protocol dbus object", err)
+			return false, &dbus.Error{Name: "Method export", Body: []interface{}{err}}
+		}
+
 		var bridge = &BridgeProto{Protocol: proto, dc: r.dc}
 		r.dc.Bridges[bridgeID] = bridge
 		if !isNil(r.Callbacks) {
@@ -259,6 +265,12 @@ func initRootProtocolProp(r *RootProto) map[string]map[string]*prop.Prop {
 				Writable: true,
 				Emit:     prop.EmitTrue,
 				Callback: r.setLogLevel,
+			},
+			propertyReachabilityState: {
+				Value:    r.Protocol.Reachability,
+				Writable: false,
+				Emit:     prop.EmitTrue,
+				Callback: nil,
 			},
 		},
 	}
