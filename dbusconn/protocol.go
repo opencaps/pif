@@ -26,40 +26,31 @@ const (
 // ReachabilityState informs if the device is reachable
 type ReachabilityState string
 
-// ProtocolInterface callback called from Protocol Dbus Methods
-type ProtocolInterface interface {
-	AddDevice(*Device)
-	RemoveDevice(string)
-	AddItem(*Item)
-	RemoveItem(string, string)
-}
-
-// ProtocolInterface callback called from Protocol Dbus Methods
-type BridgeInterface interface {
-	AddBridge(*Protocol)
-	RemoveBridge(string)
-}
-
 // Protocol is a dbus object which represents the states of a protocol
 type Protocol struct {
-	Callbacks    ProtocolInterface
-	dc           *Dbus
-	Devices      map[string]*Device
-	ready        bool
-	log          *logging.Logger
-	properties   *prop.Properties
-	Reachability ReachabilityState
-	protocolName string
+	dc             *Dbus
+	Devices        map[string]*Device
+	ready          bool
+	log            *logging.Logger
+	properties     *prop.Properties
+	Reachability   ReachabilityState
+	protocolName   string
+	addDeviceCB    interface{ AddDevice(*Device) }
+	removeDeviceCB interface{ RemoveDevice(string) }
+	addItemCB      interface{ AddItem(*Item) }
+	removeItemCB   interface{ RemoveItem(string, string) }
+	cbs            interface{}
 	sync.Mutex
 }
 
 // RootProtocol is a dbus object which represents the states of the root protocol
 type RootProto struct {
-	Protocol   *Protocol
-	Callbacks  BridgeInterface
-	dc         *Dbus
-	properties *prop.Properties
-	log        *logging.Logger
+	Protocol       *Protocol
+	dc             *Dbus
+	properties     *prop.Properties
+	log            *logging.Logger
+	addBridgeCB    interface{ AddBridge(*Protocol) }
+	removeBridgeCB interface{ RemoveBridge(string) }
 }
 
 // Protocol is a dbus object which represents the states of a bridge protocol
@@ -68,7 +59,7 @@ type BridgeProto struct {
 	dc       *Dbus
 }
 
-func (dc *Dbus) exportRootProtocolObject(protocol string) bool {
+func (dc *Dbus) initRootProtocolObject(cbs interface{}) bool {
 	if dc.conn == nil {
 		dc.Log.Warning("Unable to export Protocol dbus object because dbus connection nil")
 		return false
@@ -81,11 +72,12 @@ func (dc *Dbus) exportRootProtocolObject(protocol string) bool {
 		dc:           dc,
 		Devices:      make(map[string]*Device),
 		log:          dc.Log,
-		protocolName: protocol,
+		protocolName: dc.ProtocolName,
 		Reachability: ReachabilityUnknown,
+		cbs:          cbs,
 	}
 
-	path := dbus.ObjectPath(dbusPathPrefix + protocol)
+	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName)
 
 	// properties
 	rootPropsSpec := initRootProtocolProp(&dc.RootProtocol)
@@ -93,7 +85,7 @@ func (dc *Dbus) exportRootProtocolObject(protocol string) bool {
 	if err == nil {
 		dc.RootProtocol.properties = rootProperties
 	} else {
-		dc.Log.Error("Fail to export the properties of the root protocol", protocol, err)
+		dc.Log.Error("Fail to export the properties of the root protocol", dc.ProtocolName, err)
 	}
 
 	exportedMethods := make(map[string]interface{})
@@ -108,6 +100,8 @@ func (dc *Dbus) exportRootProtocolObject(protocol string) bool {
 		dc.Log.Warning("Fail to export Module dbus object", err)
 		return false
 	}
+	dc.RootProtocol.setRootProtocolCBs()
+	dc.RootProtocol.Protocol.setProtocolCBs()
 	return true
 }
 
@@ -138,8 +132,9 @@ func (p *Protocol) AddDevice(devID string, comID string, typeID string, typeVers
 		device := initDevice(devID, comID, typeID, typeVersion, options, p)
 		p.Devices[devID] = device
 		p.dc.exportDeviceOnDbus(p.Devices[devID])
-		if !isNil(p.Callbacks) {
-			go p.Callbacks.AddDevice(p.Devices[devID])
+		device.setCallbacks()
+		if !isNil(p.addDeviceCB) {
+			go p.addDeviceCB.AddDevice(p.Devices[devID])
 		}
 		p.dc.emitDeviceAdded(device)
 	}
@@ -161,8 +156,8 @@ func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
 	for item := range device.Items {
 		delete(device.Items, item)
 	}
-	if !isNil(p.Callbacks) {
-		go p.Callbacks.RemoveDevice(devID)
+	if !isNil(p.removeDeviceCB) {
+		go p.removeDeviceCB.RemoveDevice(devID)
 	}
 	device.Unlock()
 	delete(p.Devices, devID)
@@ -191,7 +186,9 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 			Devices:      make(map[string]*Device),
 			log:          r.log,
 			protocolName: protoName,
-			Reachability: ReachabilityUnknown}
+			Reachability: ReachabilityUnknown,
+			cbs:          r.Protocol.cbs,
+		}
 		path := dbus.ObjectPath(dbusPathPrefix + protoName)
 		propsSpec := initProtocolProp(proto)
 		properties, err := prop.Export(r.dc.conn, path, propsSpec)
@@ -208,10 +205,12 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 			return false, &dbus.Error{Name: "Method export", Body: []interface{}{err}}
 		}
 
+		proto.setProtocolCBs()
+
 		var bridge = &BridgeProto{Protocol: proto, dc: r.dc}
 		r.dc.Bridges[bridgeID] = bridge
-		if !isNil(r.Callbacks) {
-			go r.Callbacks.AddBridge(proto)
+		if !isNil(r.addBridgeCB) {
+			go r.addBridgeCB.AddBridge(proto)
 		}
 		r.dc.emitBridgeAdded(bridgeID)
 	}
@@ -234,8 +233,8 @@ func (r *RootProto) RemoveBridge(bridgeID string) *dbus.Error {
 	for device := range bridge.Protocol.Devices {
 		bridge.Protocol.RemoveDevice(device)
 	}
-	if !isNil(r.Callbacks) {
-		go r.Callbacks.RemoveBridge(bridgeID)
+	if !isNil(r.removeBridgeCB) {
+		go r.removeBridgeCB.RemoveBridge(bridgeID)
 	}
 	bridge.Protocol.Unlock()
 	delete(r.dc.Bridges, bridgeID)
@@ -308,4 +307,34 @@ func (p *Protocol) SetReachabilityState(state ReachabilityState) {
 
 	p.log.Info("propertyReachabilityState of the protocol", p.protocolName, "changed from", oldState, "to", state)
 	p.properties.SetMust(dbusProtocolInterface, propertyReachabilityState, state)
+}
+
+func (r *RootProto) setRootProtocolCBs() {
+	switch cb := r.Protocol.cbs.(type) {
+	case interface{ AddBridge(*Protocol) }:
+		r.addBridgeCB = cb
+	}
+	switch cb := r.Protocol.cbs.(type) {
+	case interface{ RemoveBridge(string) }:
+		r.removeBridgeCB = cb
+	}
+}
+
+func (p *Protocol) setProtocolCBs() {
+	switch cb := p.cbs.(type) {
+	case interface{ AddDevice(*Device) }:
+		p.addDeviceCB = cb
+	}
+	switch cb := p.cbs.(type) {
+	case interface{ RemoveDevice(string) }:
+		p.removeDeviceCB = cb
+	}
+	switch cb := p.cbs.(type) {
+	case interface{ AddItem(*Item) }:
+		p.addItemCB = cb
+	}
+	switch cb := p.cbs.(type) {
+	case interface{ RemoveItem(string, string) }:
+		p.removeItemCB = cb
+	}
 }

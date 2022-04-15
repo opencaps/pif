@@ -16,14 +16,6 @@ const (
 	propertyValue  = "Value"
 )
 
-type setItemOptionInterface interface {
-	SetItemOptions(*Item) *dbus.Error
-}
-
-type setItemTargetInterface interface {
-	SetItemTarget(*Item, []byte) *dbus.Error
-}
-
 // Item object structure
 type Item struct {
 	ItemID      string
@@ -37,13 +29,13 @@ type Item struct {
 	log         *logging.Logger
 	Device      *Device
 
-	SetItemOptionCb setItemOptionInterface
-	SetItemTargetCb setItemTargetInterface
+	setItemOptionCb interface{ SetItemOptions(*Item) }
+	setItemTargetCb interface{ SetItemTarget(*Item, []byte) }
 }
 
 func (i *Item) setItemOptions(c *prop.Change) *dbus.Error {
-	if !isNil(i.SetItemOptionCb) {
-		go i.SetItemOptionCb.SetItemOptions(i)
+	if !isNil(i.setItemOptionCb) {
+		go i.setItemOptionCb.SetItemOptions(i)
 	} else {
 		i.log.Warning("No Options")
 	}
@@ -51,8 +43,8 @@ func (i *Item) setItemOptions(c *prop.Change) *dbus.Error {
 }
 
 func (i *Item) setItemTarget(c *prop.Change) *dbus.Error {
-	if !isNil(i.SetItemTargetCb) {
-		go i.SetItemTargetCb.SetItemTarget(i, c.Value.([]byte))
+	if !isNil(i.setItemTargetCb) {
+		go i.setItemTargetCb.SetItemTarget(i, c.Value.([]byte))
 	} else {
 		i.log.Warning("No Target callback")
 	}
@@ -172,4 +164,16 @@ func (item *Item) SetOption(options []byte) {
 
 	item.log.Info("propertyOptions of the item", item.ItemID, "changed from", oldState, "to", newState)
 	item.properties.SetMust(dbusItemInterface, propertyOptions, newState)
+}
+
+func (i *Item) setCallbacks() {
+	switch cb := i.Device.Protocol.cbs.(type) {
+	case interface{ SetItemOptions(*Item) }:
+		i.setItemOptionCb = cb
+	}
+	switch cb := i.Device.Protocol.cbs.(type) {
+	case interface{ SetItemTarget(*Item, []byte) }:
+		i.setItemTargetCb = cb
+	}
+
 }

@@ -41,23 +41,11 @@ const (
 	PairingNotNeeded PairingState = "NOT_NEEDED"
 )
 
-type setDeviceOptionInterface interface {
-	SetDeviceOptions(*Device) *dbus.Error
-}
-
-type updateFirmwareInterface interface {
-	UpdateFirmware(*Device, string) (string, *dbus.Error)
-}
-
-type operabilityTimeoutInterface interface {
-	OperabilityWentKo(*Device)
-}
-
 // Device object structure
 type Device struct {
 	sync.Mutex
 
-	protocol *Protocol
+	Protocol *Protocol
 
 	DevID           string
 	Address         string
@@ -77,9 +65,9 @@ type Device struct {
 
 	log *logging.Logger
 
-	SetDeviceOptionCb    setDeviceOptionInterface
-	UpdateFirmwareCb     updateFirmwareInterface
-	OperabilityTimeoutCB operabilityTimeoutInterface
+	setDeviceOptionCb    interface{ SetDeviceOptions(*Device) }
+	updateFirmwareCb     interface{ UpdateFirmware(*Device, string) }
+	operabilityTimeoutCB interface{ OperabilityWentKo(*Device) }
 }
 
 // OperabilityState informs if the device work
@@ -89,8 +77,8 @@ type OperabilityState string
 type PairingState string
 
 func (d *Device) setDeviceOptions(c *prop.Change) *dbus.Error {
-	if !isNil(d.SetDeviceOptionCb) {
-		go d.SetDeviceOptionCb.SetDeviceOptions(d)
+	if !isNil(d.setDeviceOptionCb) {
+		go d.setDeviceOptionCb.SetDeviceOptions(d)
 	} else {
 		d.log.Warning("No Options")
 	}
@@ -99,8 +87,8 @@ func (d *Device) setDeviceOptions(c *prop.Change) *dbus.Error {
 
 //UpdateFirmware is the dbus method to update the firmware of the device
 func (d *Device) UpdateFirmware(data string) (string, *dbus.Error) {
-	if !isNil(d.UpdateFirmwareCb) {
-		return d.UpdateFirmwareCb.UpdateFirmware(d, data)
+	if !isNil(d.updateFirmwareCb) {
+		go d.updateFirmwareCb.UpdateFirmware(d, data)
 	}
 	d.log.Warning("Update firmware not implemented")
 	return "", nil
@@ -109,8 +97,8 @@ func (d *Device) UpdateFirmware(data string) (string, *dbus.Error) {
 func (d *Device) operabilityCBTimeout() {
 	d.SetOperabilityState(OperabilityKo)
 
-	if !isNil(d.OperabilityTimeoutCB) {
-		d.OperabilityTimeoutCB.OperabilityWentKo(d)
+	if !isNil(d.operabilityTimeoutCB) {
+		go d.operabilityTimeoutCB.OperabilityWentKo(d)
 	}
 }
 
@@ -124,7 +112,7 @@ func initDevice(devID string, address string, typeID string, typeVersion string,
 		PairingState: PairingUnknown,
 		Operability:  OperabilityUnknown,
 		Items:        make(map[string]*Item),
-		protocol:     p,
+		Protocol:     p,
 		log:          p.log,
 	}
 }
@@ -175,12 +163,13 @@ func (device *Device) AddItem(itemID string, typeID string, typeVersion string, 
 	if !itemPresent {
 		item := initItem(itemID, typeID, typeVersion, options, device)
 		device.Items[itemID] = item
-		device.protocol.dc.exportItemOnDbus(device.DevID, item)
+		device.Protocol.dc.exportItemOnDbus(device.DevID, item)
+		item.setCallbacks()
 
-		if !isNil(device.protocol.Callbacks) {
-			go device.protocol.Callbacks.AddItem(item)
+		if !isNil(device.Protocol.addItemCB) {
+			go device.Protocol.addItemCB.AddItem(item)
 		}
-		device.protocol.dc.emitItemAdded(device.DevID, item)
+		device.Protocol.dc.emitItemAdded(device.DevID, item)
 		device.Unlock()
 		return false, nil
 	}
@@ -196,10 +185,10 @@ func (device *Device) RemoveItem(itemID string) *dbus.Error {
 	_, present := device.Items[itemID]
 	if present {
 		delete(device.Items, itemID)
-		if !isNil(device.protocol.Callbacks) {
-			go device.protocol.Callbacks.RemoveItem(device.DevID, itemID)
+		if !isNil(device.Protocol.removeItemCB) {
+			go device.Protocol.removeItemCB.RemoveItem(device.DevID, itemID)
 		}
-		device.protocol.dc.emitItemRemoved(device.DevID, itemID)
+		device.Protocol.dc.emitItemRemoved(device.DevID, itemID)
 	}
 	device.Unlock()
 	return nil
@@ -320,4 +309,19 @@ func (device *Device) SetOption(options []byte) {
 
 	device.log.Info("propertyOptions of the device", device.DevID, "changed from", oldState, "to", newState)
 	device.properties.SetMust(dbusDeviceInterface, propertyOptions, newState)
+}
+
+func (d *Device) setCallbacks() {
+	switch cb := d.Protocol.cbs.(type) {
+	case interface{ SetDeviceOptions(*Device) }:
+		d.setDeviceOptionCb = cb
+	}
+	switch cb := d.Protocol.cbs.(type) {
+	case interface{ UpdateFirmware(*Device, string) }:
+		d.updateFirmwareCb = cb
+	}
+	switch cb := d.Protocol.cbs.(type) {
+	case interface{ OperabilityWentKo(*Device) }:
+		d.operabilityTimeoutCB = cb
+	}
 }
