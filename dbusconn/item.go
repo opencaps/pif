@@ -166,14 +166,14 @@ func (item *Item) SetOption(options []byte) {
 	item.properties.SetMust(dbusItemInterface, propertyOptions, newState)
 }
 
-func (i *Item) setCallbacks() {
-	switch cb := i.Device.Protocol.cbs.(type) {
+// SetCallbacks set new callbacks for item
+func (i *Item) SetCallbacks(cbs interface{}) {
+	switch cb := cbs.(type) {
 	case interface{ SetItemOptions(*Item) }:
 		i.setItemOptionCb = cb
 	}
-	switch cb := i.Device.Protocol.cbs.(type) {
+	switch cb := cbs.(type) {
 	case interface{ SetItemTarget(*Item, []byte) }:
 		i.setItemTargetCb = cb
 	}
-
 }

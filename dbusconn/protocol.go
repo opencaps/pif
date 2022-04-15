@@ -100,8 +100,8 @@ func (dc *Dbus) initRootProtocolObject(cbs interface{}) bool {
 		dc.Log.Warning("Fail to export Module dbus object", err)
 		return false
 	}
-	dc.RootProtocol.setRootProtocolCBs()
-	dc.RootProtocol.Protocol.setProtocolCBs()
+	dc.RootProtocol.SetRootProtocolCBs()
+	dc.RootProtocol.Protocol.SetProtocolCBs()
 	return true
 }
 
@@ -132,7 +132,7 @@ func (p *Protocol) AddDevice(devID string, comID string, typeID string, typeVers
 		device := initDevice(devID, comID, typeID, typeVersion, options, p)
 		p.Devices[devID] = device
 		p.dc.exportDeviceOnDbus(p.Devices[devID])
-		device.setCallbacks()
+		device.SetCallbacks()
 		if !isNil(p.addDeviceCB) {
 			go p.addDeviceCB.AddDevice(p.Devices[devID])
 		}
@@ -205,7 +205,7 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 			return false, &dbus.Error{Name: "Method export", Body: []interface{}{err}}
 		}
 
-		proto.setProtocolCBs()
+		proto.SetProtocolCBs()
 
 		var bridge = &BridgeProto{Protocol: proto, dc: r.dc}
 		r.dc.Bridges[bridgeID] = bridge
@@ -309,7 +309,8 @@ func (p *Protocol) SetReachabilityState(state ReachabilityState) {
 	p.properties.SetMust(dbusProtocolInterface, propertyReachabilityState, state)
 }
 
-func (r *RootProto) setRootProtocolCBs() {
+// SetCallbacks set new callbacks for this Root protocol
+func (r *RootProto) SetRootProtocolCBs() {
 	switch cb := r.Protocol.cbs.(type) {
 	case interface{ AddBridge(*Protocol) }:
 		r.addBridgeCB = cb
@@ -320,7 +321,8 @@ func (r *RootProto) setRootProtocolCBs() {
 	}
 }
 
-func (p *Protocol) setProtocolCBs() {
+// SetCallbacks set new callbacks for this protocol
+func (p *Protocol) SetProtocolCBs() {
 	switch cb := p.cbs.(type) {
 	case interface{ AddDevice(*Device) }:
 		p.addDeviceCB = cb

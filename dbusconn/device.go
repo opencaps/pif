@@ -164,7 +164,7 @@ func (device *Device) AddItem(itemID string, typeID string, typeVersion string, 
 		item := initItem(itemID, typeID, typeVersion, options, device)
 		device.Items[itemID] = item
 		device.Protocol.dc.exportItemOnDbus(device.DevID, item)
-		item.setCallbacks()
+		item.SetCallbacks(device.Protocol.cbs)
 
 		if !isNil(device.Protocol.addItemCB) {
 			go device.Protocol.addItemCB.AddItem(item)
@@ -311,7 +311,7 @@ func (device *Device) SetOption(options []byte) {
 	device.properties.SetMust(dbusDeviceInterface, propertyOptions, newState)
 }
 
-func (d *Device) setCallbacks() {
+func (d *Device) SetCallbacks() {
 	switch cb := d.Protocol.cbs.(type) {
 	case interface{ SetDeviceOptions(*Device) }:
 		d.setDeviceOptionCb = cb
