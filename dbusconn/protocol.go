@@ -40,6 +40,7 @@ type Protocol struct {
 	addItemCB      interface{ AddItem(*Item) }
 	removeItemCB   interface{ RemoveItem(string, string) }
 	cbs            interface{}
+	isBridged      bool
 	sync.Mutex
 }
 
@@ -75,6 +76,7 @@ func (dc *Dbus) initRootProtocolObject(cbs interface{}) bool {
 		protocolName: dc.ProtocolName,
 		Reachability: ReachabilityUnknown,
 		cbs:          cbs,
+		isBridged:    false,
 	}
 
 	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName)
@@ -88,18 +90,10 @@ func (dc *Dbus) initRootProtocolObject(cbs interface{}) bool {
 		dc.Log.Error("Fail to export the properties of the root protocol", dc.ProtocolName, err)
 	}
 
-	exportedMethods := make(map[string]interface{})
-	exportedMethods["IsReady"] = dc.RootProtocol.Protocol.IsReady
-	exportedMethods["AddBridge"] = dc.RootProtocol.AddBridge
-	exportedMethods["RemoveBridge"] = dc.RootProtocol.RemoveBridge
-	exportedMethods["AddDevice"] = dc.RootProtocol.Protocol.AddDevice
-	exportedMethods["RemoveDevice"] = dc.RootProtocol.Protocol.RemoveDevice
-
-	err = dc.conn.ExportMethodTable(exportedMethods, path, dbusProtocolInterface)
-	if err != nil {
-		dc.Log.Warning("Fail to export Module dbus object", err)
+	if !dc.RootProtocol.Protocol.SetDbusMethods(nil) {
 		return false
 	}
+
 	dc.RootProtocol.SetRootProtocolCBs()
 	dc.RootProtocol.Protocol.SetProtocolCBs()
 	return true
@@ -159,9 +153,9 @@ func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
 	if !isNil(p.removeDeviceCB) {
 		go p.removeDeviceCB.RemoveDevice(devID)
 	}
+	p.dc.emitDeviceRemoved(device)
 	device.Unlock()
 	delete(p.Devices, devID)
-	p.dc.emitDeviceRemoved(devID)
 	p.Unlock()
 	return nil
 }
@@ -188,6 +182,7 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 			protocolName: protoName,
 			Reachability: ReachabilityUnknown,
 			cbs:          r.Protocol.cbs,
+			isBridged:    true,
 		}
 		path := dbus.ObjectPath(dbusPathPrefix + protoName)
 		propsSpec := initProtocolProp(proto)
@@ -198,13 +193,7 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 			proto.log.Error("Fail to export the properties of the protocol", protoName, err)
 			return false, &dbus.Error{Name: "Property export", Body: []interface{}{err}}
 		}
-
-		err = r.dc.conn.Export(proto, path, dbusProtocolInterface)
-		if err != nil {
-			proto.log.Warning("Fail to export Protocol dbus object", err)
-			return false, &dbus.Error{Name: "Method export", Body: []interface{}{err}}
-		}
-
+		proto.SetDbusMethods(nil)
 		proto.SetProtocolCBs()
 
 		var bridge = &BridgeProto{Protocol: proto, dc: r.dc}
@@ -339,4 +328,28 @@ func (p *Protocol) SetProtocolCBs() {
 	case interface{ RemoveItem(string, string) }:
 		p.removeItemCB = cb
 	}
+}
+
+// SetDbusMethods set new dbusMethods for this protocol
+func (p *Protocol) SetDbusMethods(externalMethods map[string]interface{}) bool {
+	path := dbus.ObjectPath(dbusPathPrefix + p.protocolName)
+	exportedMethods := make(map[string]interface{})
+	exportedMethods["IsReady"] = p.IsReady
+	exportedMethods["AddDevice"] = p.AddDevice
+	exportedMethods["RemoveDevice"] = p.RemoveDevice
+	if p.isBridged {
+		exportedMethods["AddBridge"] = p.dc.RootProtocol.AddBridge
+		exportedMethods["RemoveBridge"] = p.dc.RootProtocol.RemoveBridge
+	}
+
+	for name, inter := range externalMethods {
+		exportedMethods[name] = inter
+	}
+
+	err := p.dc.conn.ExportMethodTable(exportedMethods, path, dbusProtocolInterface)
+	if err != nil {
+		p.dc.Log.Warning("Fail to export protocol dbus object", p.protocolName, err)
+		return false
+	}
+	return true
 }

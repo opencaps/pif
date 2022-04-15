@@ -123,12 +123,12 @@ func (dc *Dbus) emitDeviceAdded(device *Device) {
 	args[1] = device.TypeID
 	args[2] = device.TypeVersion
 	args[3] = device.Options
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + device.DevID)
+	path := dbus.ObjectPath(dbusPathPrefix + device.Protocol.protocolName + "/" + device.DevID)
 	dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceAdded, args...)
 }
 
-func (dc *Dbus) emitDeviceRemoved(devID string) {
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + devID)
+func (dc *Dbus) emitDeviceRemoved(device *Device) {
+	path := dbus.ObjectPath(dbusPathPrefix + device.Protocol.protocolName + "/" + device.DevID)
 	dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceRemoved)
 }
 
@@ -137,7 +137,7 @@ func (dc *Dbus) exportDeviceOnDbus(device *Device) {
 		dc.Log.Warning("Unable to export dbus object because dbus connection nil")
 	}
 
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + device.DevID)
+	path := dbus.ObjectPath(dbusPathPrefix + device.Protocol.protocolName + "/" + device.DevID)
 
 	// properties
 	propsSpec := initDeviceProp(device)
@@ -149,7 +149,7 @@ func (dc *Dbus) exportDeviceOnDbus(device *Device) {
 	}
 
 	// object
-	dc.conn.Export(device, path, dbusDeviceInterface)
+	device.SetDbusMethods(nil)
 
 	dc.Log.Info("Device exported:", path)
 }
@@ -163,13 +163,13 @@ func (device *Device) AddItem(itemID string, typeID string, typeVersion string, 
 	if !itemPresent {
 		item := initItem(itemID, typeID, typeVersion, options, device)
 		device.Items[itemID] = item
-		device.Protocol.dc.exportItemOnDbus(device.DevID, item)
+		device.Protocol.dc.exportItemOnDbus(item)
 		item.SetCallbacks(device.Protocol.cbs)
 
 		if !isNil(device.Protocol.addItemCB) {
 			go device.Protocol.addItemCB.AddItem(item)
 		}
-		device.Protocol.dc.emitItemAdded(device.DevID, item)
+		device.Protocol.dc.emitItemAdded(item)
 		device.Unlock()
 		return false, nil
 	}
@@ -182,13 +182,13 @@ func (device *Device) RemoveItem(itemID string) *dbus.Error {
 	device.log.Info("RemoveItem called - itemID:", itemID)
 
 	device.Lock()
-	_, present := device.Items[itemID]
+	item, present := device.Items[itemID]
 	if present {
+		device.Protocol.dc.emitItemRemoved(item)
 		delete(device.Items, itemID)
 		if !isNil(device.Protocol.removeItemCB) {
 			go device.Protocol.removeItemCB.RemoveItem(device.DevID, itemID)
 		}
-		device.Protocol.dc.emitItemRemoved(device.DevID, itemID)
 	}
 	device.Unlock()
 	return nil
@@ -311,6 +311,7 @@ func (device *Device) SetOption(options []byte) {
 	device.properties.SetMust(dbusDeviceInterface, propertyOptions, newState)
 }
 
+// SetCallbacks set new callbacks for this device
 func (d *Device) SetCallbacks() {
 	switch cb := d.Protocol.cbs.(type) {
 	case interface{ SetDeviceOptions(*Device) }:
@@ -324,4 +325,23 @@ func (d *Device) SetCallbacks() {
 	case interface{ OperabilityWentKo(*Device) }:
 		d.operabilityTimeoutCB = cb
 	}
+}
+
+// SetDbusMethods set new dbusMethods for this device
+func (d *Device) SetDbusMethods(externalMethods map[string]interface{}) bool {
+	path := dbus.ObjectPath(dbusPathPrefix + d.Protocol.protocolName + "/" + d.DevID)
+	exportedMethods := make(map[string]interface{})
+	exportedMethods["AddItem"] = d.AddItem
+	exportedMethods["RemoveItem"] = d.RemoveItem
+
+	for name, inter := range externalMethods {
+		exportedMethods[name] = inter
+	}
+
+	err := d.Protocol.dc.conn.ExportMethodTable(exportedMethods, path, dbusDeviceInterface)
+	if err != nil {
+		d.log.Warning("Fail to export device dbus object", d.DevID, err)
+		return false
+	}
+	return true
 }

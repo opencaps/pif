@@ -63,12 +63,12 @@ func initItem(itemID string, typeID string, typeVersion string, options []byte, 
 	}
 }
 
-func (dc *Dbus) exportItemOnDbus(devID string, item *Item) {
+func (dc *Dbus) exportItemOnDbus(item *Item) {
 	if dc.conn == nil {
 		dc.Log.Warning("Unable to export dbus object because dbus connection nil")
 	}
 
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + devID + "/" + item.ItemID)
+	path := dbus.ObjectPath(dbusPathPrefix + item.Device.Protocol.protocolName + "/" + item.Device.DevID + "/" + item.ItemID)
 
 	// properties
 	propsSpec := initItemProp(item)
@@ -76,7 +76,7 @@ func (dc *Dbus) exportItemOnDbus(devID string, item *Item) {
 	if err == nil {
 		item.properties = properties
 	} else {
-		dc.Log.Error("Fail to export the properties of the device", devID, item.ItemID, err)
+		dc.Log.Error("Fail to export the properties of the device", item.Device.DevID, item.ItemID, err)
 	}
 
 	dc.conn.Export(item, path, dbusItemInterface)
@@ -108,17 +108,17 @@ func initItemProp(item *Item) map[string]map[string]*prop.Prop {
 	}
 }
 
-func (dc *Dbus) emitItemAdded(devID string, item *Item) {
+func (dc *Dbus) emitItemAdded(item *Item) {
 	args := make([]interface{}, 3)
 	args[0] = item.TypeID
 	args[1] = item.TypeVersion
 	args[2] = item.Options
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + devID + "/" + item.ItemID)
+	path := dbus.ObjectPath(dbusPathPrefix + item.Device.Protocol.protocolName + "/" + item.Device.DevID + "/" + item.ItemID)
 	dc.conn.Emit(path, dbusItemInterface+"."+signalItemAdded, args...)
 }
 
-func (dc *Dbus) emitItemRemoved(devID string, itemID string) {
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + devID + "/" + itemID)
+func (dc *Dbus) emitItemRemoved(item *Item) {
+	path := dbus.ObjectPath(dbusPathPrefix + item.Device.Protocol.protocolName + "/" + item.Device.DevID + "/" + item.ItemID)
 	dc.conn.Emit(path, dbusItemInterface+"."+signalItemRemoved)
 }
 
@@ -166,7 +166,7 @@ func (item *Item) SetOption(options []byte) {
 	item.properties.SetMust(dbusItemInterface, propertyOptions, newState)
 }
 
-// SetCallbacks set new callbacks for item
+// SetCallbacks set new callbacks for this item
 func (i *Item) SetCallbacks(cbs interface{}) {
 	switch cb := cbs.(type) {
 	case interface{ SetItemOptions(*Item) }:
@@ -176,4 +176,15 @@ func (i *Item) SetCallbacks(cbs interface{}) {
 	case interface{ SetItemTarget(*Item, []byte) }:
 		i.setItemTargetCb = cb
 	}
+}
+
+// SetDbusMethods set new dbusMethods for this Item
+func (i *Item) SetDbusMethods(externalMethods map[string]interface{}) bool {
+	path := dbus.ObjectPath(dbusPathPrefix + i.Device.Protocol.protocolName + "/" + i.Device.DevID + "/" + i.ItemID)
+	err := i.Device.Protocol.dc.conn.ExportMethodTable(externalMethods, path, dbusItemInterface)
+	if err != nil {
+		i.log.Warning("Fail to export item dbus object", i.ItemID, err)
+		return false
+	}
+	return true
 }
