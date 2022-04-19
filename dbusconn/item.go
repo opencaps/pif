@@ -54,17 +54,15 @@ func initItem(itemID string, typeID string, typeVersion string, options []byte, 
 		i.dc.Log.Warning("Unable to export dbus object because dbus connection nil")
 	}
 
-	path := dbus.ObjectPath(dbusPathPrefix + i.Device.Protocol.protocolName + "/" + i.Device.DevID + "/" + i.ItemID)
-
 	i.SetDbusProperties(nil)
-	i.dc.conn.Export(i, path, dbusItemInterface)
+	i.SetDbusMethods(nil)
 	i.SetCallbacks(d.Protocol.cbs)
 
 	if !isNil(d.addItemCB) {
 		go d.addItemCB.AddItem(i)
 	}
 
-	i.dc.conn.Emit(path, dbusItemInterface+"."+signalItemAdded, []interface{}{i.TypeID, i.TypeVersion, i.Options})
+	i.EmitDbusSignal(signalItemAdded, []interface{}{i.TypeID, i.TypeVersion, i.Options})
 
 	return i
 }
@@ -97,6 +95,12 @@ func (i *Item) setItemTarget(c *prop.Change) *dbus.Error {
 		i.log.Warning("No Target callback")
 	}
 	return nil
+}
+
+// EmitDbusSignal emit a dbus signal from item object
+func (i *Item) EmitDbusSignal(sigName string, args ...interface{}) {
+	path := dbus.ObjectPath(dbusPathPrefix + i.Device.Protocol.protocolName + "/" + i.Device.DevID + "/" + i.ItemID)
+	i.dc.conn.Emit(path, dbusItemInterface+"."+sigName, args...)
 }
 
 // SetCallbacks set new callbacks for this item

@@ -93,8 +93,6 @@ func initDevice(devID string, address string, typeID string, typeVersion string,
 	}
 	p.Devices[devID] = d
 
-	path := dbus.ObjectPath(dbusPathPrefix + d.Protocol.protocolName + "/" + d.DevID)
-
 	d.SetDbusProperties(nil)
 	d.SetDbusMethods(nil)
 	d.SetCallbacks(d.Protocol.cbs)
@@ -103,7 +101,7 @@ func initDevice(devID string, address string, typeID string, typeVersion string,
 	}
 
 	//Emit Device Added
-	p.dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceAdded, []interface{}{d.Address, d.TypeID, d.TypeVersion, d.Options})
+	d.EmitDbusSignal(signalDeviceAdded, []interface{}{d.Address, d.TypeID, d.TypeVersion, d.Options})
 }
 
 func removeDevice(d *Device) {
@@ -172,6 +170,12 @@ func (d *Device) UpdateFirmware(data string) (string, *dbus.Error) {
 	}
 	d.log.Warning("Update firmware not implemented")
 	return "", nil
+}
+
+// EmitDbusSignal emit a dbus signal from device object
+func (d *Device) EmitDbusSignal(sigName string, args ...interface{}) {
+	path := dbus.ObjectPath(dbusPathPrefix + d.Protocol.protocolName + "/" + d.DevID)
+	d.dc.conn.Emit(path, dbusDeviceInterface+"."+sigName, args...)
 }
 
 // SetOperabilityState set the value of the property OperabilityState
