@@ -26,8 +26,7 @@ func (dm *DriversManager) InitDriversManager() {
 	}
 }
 
-// GetItem to get an item from the struct
-func (dm *DriversManager) GetItem(id string, version string) (*DriverItem, bool) {
+func (dm *DriversManager) getItem(id string, version string) (*DriverItem, bool) {
 	dm.Lock()
 	name := driverName(id, version)
 	driver, driverFound := dm.items[name]
@@ -36,10 +35,10 @@ func (dm *DriversManager) GetItem(id string, version string) (*DriverItem, bool)
 	return &driver, driverFound
 }
 
-// FindItem to get an item
+// GetDriverItem to get a driver item
 // If the item is not in the struct, the function will try to find it on the disk
-func (dm *DriversManager) FindItem(id string, version string) (*DriverItem, bool) {
-	driver, driverFound := dm.GetItem(id, version)
+func (dm *DriversManager) GetDriverItem(id string, version string) (*DriverItem, bool) {
+	driver, driverFound := dm.getItem(id, version)
 
 	if driverFound {
 		return driver, driverFound

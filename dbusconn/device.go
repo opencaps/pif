@@ -41,45 +41,34 @@ const (
 	PairingNotNeeded PairingState = "NOT_NEEDED"
 )
 
-type setDeviceOptionInterface interface {
-	SetDeviceOptions(*Device) *dbus.Error
-}
-
-type updateFirmwareInterface interface {
-	UpdateFirmware(*Device, string) (string, *dbus.Error)
-}
-
-type operabilityTimeoutInterface interface {
-	OperabilityWentKo(*Device)
-}
-
 // Device object structure
 type Device struct {
 	sync.Mutex
 
-	protocol *Protocol
+	Protocol *Protocol
 
-	DevID           string
-	Address         string
-	TypeID          string
-	TypeVersion     string
-	Options         []byte
-	FirmwareVersion string
-	Operability     OperabilityState
-	PairingState    PairingState
-
+	DevID              string
+	Address            string
+	TypeID             string
+	TypeVersion        string
+	Options            []byte
+	FirmwareVersion    string
+	Operability        OperabilityState
+	PairingState       PairingState
 	OperabilityTimeout time.Duration
 
-	timer *time.Timer
+	Items map[string]*Item
 
+	dc         *Dbus
+	timer      *time.Timer
 	properties *prop.Properties
-	Items      map[string]*Item
+	log        *logging.Logger
 
-	log *logging.Logger
-
-	SetDeviceOptionCb    setDeviceOptionInterface
-	UpdateFirmwareCb     updateFirmwareInterface
-	OperabilityTimeoutCB operabilityTimeoutInterface
+	addItemCB            interface{ AddItem(*Item) }
+	removeItemCB         interface{ RemoveItem(string, string) }
+	setDeviceOptionCb    interface{ SetDeviceOptions(*Device) }
+	updateFirmwareCb     interface{ UpdateFirmware(*Device, string) }
+	operabilityTimeoutCB interface{ OperabilityWentKo(*Device) }
 }
 
 // OperabilityState informs if the device work
@@ -88,34 +77,8 @@ type OperabilityState string
 // PairingState informs the state of the pairing
 type PairingState string
 
-func (d *Device) setDeviceOptions(c *prop.Change) *dbus.Error {
-	if !isNil(d.SetDeviceOptionCb) {
-		go d.SetDeviceOptionCb.SetDeviceOptions(d)
-	} else {
-		d.log.Warning("No Options")
-	}
-	return nil
-}
-
-//UpdateFirmware is the dbus method to update the firmware of the device
-func (d *Device) UpdateFirmware(data string) (string, *dbus.Error) {
-	if !isNil(d.UpdateFirmwareCb) {
-		return d.UpdateFirmwareCb.UpdateFirmware(d, data)
-	}
-	d.log.Warning("Update firmware not implemented")
-	return "", nil
-}
-
-func (d *Device) operabilityCBTimeout() {
-	d.SetOperabilityState(OperabilityKo)
-
-	if !isNil(d.OperabilityTimeoutCB) {
-		d.OperabilityTimeoutCB.OperabilityWentKo(d)
-	}
-}
-
-func initDevice(devID string, address string, typeID string, typeVersion string, options []byte, p *Protocol) *Device {
-	return &Device{
+func initDevice(devID string, address string, typeID string, typeVersion string, options []byte, p *Protocol) {
+	device := &Device{
 		DevID:        devID,
 		Address:      address,
 		TypeID:       typeID,
@@ -124,89 +87,16 @@ func initDevice(devID string, address string, typeID string, typeVersion string,
 		PairingState: PairingUnknown,
 		Operability:  OperabilityUnknown,
 		Items:        make(map[string]*Item),
-		protocol:     p,
+		Protocol:     p,
 		log:          p.log,
+		dc:           p.dc,
 	}
-}
+	p.Devices[devID] = device
 
-func (dc *Dbus) emitDeviceAdded(device *Device) {
-	args := make([]interface{}, 4)
-	args[0] = device.Address
-	args[1] = device.TypeID
-	args[2] = device.TypeVersion
-	args[3] = device.Options
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + device.DevID)
-	dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceAdded, args...)
-}
-
-func (dc *Dbus) emitDeviceRemoved(devID string) {
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + devID)
-	dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceRemoved)
-}
-
-func (dc *Dbus) exportDeviceOnDbus(device *Device) {
-	if dc.conn == nil {
-		dc.Log.Warning("Unable to export dbus object because dbus connection nil")
-	}
-
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "/" + device.DevID)
+	path := dbus.ObjectPath(dbusPathPrefix + device.Protocol.protocolName + "/" + device.DevID)
 
 	// properties
-	propsSpec := initDeviceProp(device)
-	properties, err := prop.Export(dc.conn, path, propsSpec)
-	if err == nil {
-		device.properties = properties
-	} else {
-		dc.Log.Error("Fail to export the properties of the device", device.DevID, err)
-	}
-
-	// object
-	dc.conn.Export(device, path, dbusDeviceInterface)
-
-	dc.Log.Info("Device exported:", path)
-}
-
-// AddItem adds a new item to device
-func (device *Device) AddItem(itemID string, typeID string, typeVersion string, options []byte) (bool, *dbus.Error) {
-	device.log.Info("AddItem called - itemID:", itemID, "typeID:", typeID, "typeVersion:", typeVersion, "options:", options)
-
-	device.Lock()
-	_, itemPresent := device.Items[itemID]
-	if !itemPresent {
-		item := initItem(itemID, typeID, typeVersion, options, device)
-		device.Items[itemID] = item
-		device.protocol.dc.exportItemOnDbus(device.DevID, item)
-
-		if !isNil(device.protocol.Callbacks) {
-			go device.protocol.Callbacks.AddItem(item)
-		}
-		device.protocol.dc.emitItemAdded(device.DevID, item)
-		device.Unlock()
-		return false, nil
-	}
-	device.Unlock()
-	return true, nil
-}
-
-// RemoveItem remove item from device
-func (device *Device) RemoveItem(itemID string) *dbus.Error {
-	device.log.Info("RemoveItem called - itemID:", itemID)
-
-	device.Lock()
-	_, present := device.Items[itemID]
-	if present {
-		delete(device.Items, itemID)
-		if !isNil(device.protocol.Callbacks) {
-			go device.protocol.Callbacks.RemoveItem(device.DevID, itemID)
-		}
-		device.protocol.dc.emitItemRemoved(device.DevID, itemID)
-	}
-	device.Unlock()
-	return nil
-}
-
-func initDeviceProp(device *Device) map[string]map[string]*prop.Prop {
-	return map[string]map[string]*prop.Prop{
+	propsSpec := map[string]map[string]*prop.Prop{
 		dbusDeviceInterface: {
 			propertyOperabilityState: {
 				Value:    device.Operability,
@@ -234,23 +124,107 @@ func initDeviceProp(device *Device) map[string]map[string]*prop.Prop {
 			},
 		},
 	}
+
+	properties, err := prop.Export(p.dc.conn, path, propsSpec)
+	if err == nil {
+		device.properties = properties
+	} else {
+		p.log.Error("Fail to export the properties of the device", device.DevID, err)
+	}
+
+	device.SetDbusMethods(nil)
+	device.SetCallbacks()
+	if !isNil(p.addDeviceCB) {
+		go p.addDeviceCB.AddDevice(p.Devices[devID])
+	}
+
+	//Emit Device Added
+	p.dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceAdded, []interface{}{device.Address, device.TypeID, device.TypeVersion, device.Options})
+}
+
+func removeDevice(d *Device) {
+	p := d.Protocol
+	path := dbus.ObjectPath(dbusPathPrefix + p.protocolName + "/" + d.DevID)
+	d.Lock()
+	for _, i := range d.Items {
+		removeItem(i)
+	}
+	if !isNil(p.removeDeviceCB) {
+		go p.removeDeviceCB.RemoveDevice(d.DevID)
+	}
+	d.Unlock()
+	delete(p.Devices, d.DevID)
+	p.dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceRemoved)
+	p.dc.conn.Export(nil, path, dbusDeviceInterface)
+}
+
+func (d *Device) operabilityCBTimeout() {
+	d.SetOperabilityState(OperabilityKo)
+
+	if !isNil(d.operabilityTimeoutCB) {
+		go d.operabilityTimeoutCB.OperabilityWentKo(d)
+	}
+}
+
+func (d *Device) setDeviceOptions(c *prop.Change) *dbus.Error {
+	if !isNil(d.setDeviceOptionCb) {
+		go d.setDeviceOptionCb.SetDeviceOptions(d)
+	} else {
+		d.log.Warning("No Options")
+	}
+	return nil
+}
+
+// AddItem adds a new item to device
+func (d *Device) AddItem(itemID string, typeID string, typeVersion string, options []byte) (bool, *dbus.Error) {
+	d.log.Info("AddItem called - itemID:", itemID, "typeID:", typeID, "typeVersion:", typeVersion, "options:", options)
+	d.Lock()
+	_, itemPresent := d.Items[itemID]
+	if !itemPresent {
+		initItem(itemID, typeID, typeVersion, options, d)
+		d.Unlock()
+		return false, nil
+	}
+	d.Unlock()
+	return true, nil
+}
+
+// RemoveItem remove item from device
+func (d *Device) RemoveItem(itemID string) *dbus.Error {
+	d.log.Info("RemoveItem called - itemID:", itemID)
+	d.Lock()
+	i, present := d.Items[itemID]
+	if present {
+		removeItem(i)
+	}
+	d.Unlock()
+	return nil
+}
+
+//UpdateFirmware is the dbus method to update the firmware of the device
+func (d *Device) UpdateFirmware(data string) (string, *dbus.Error) {
+	if !isNil(d.updateFirmwareCb) {
+		go d.updateFirmwareCb.UpdateFirmware(d, data)
+	}
+	d.log.Warning("Update firmware not implemented")
+	return "", nil
 }
 
 // SetOperabilityState set the value of the property OperabilityState
-func (device *Device) SetOperabilityState(state OperabilityState) {
-	if device.properties == nil {
+func (d *Device) SetOperabilityState(state OperabilityState) {
+	if d.properties == nil {
 		return
 	}
 
-	if device.OperabilityTimeout != 0 && state == OperabilityOk {
-		if device.timer == nil {
-			device.timer = time.AfterFunc(device.OperabilityTimeout, device.operabilityCBTimeout)
+	if d.OperabilityTimeout != 0 && state == OperabilityOk {
+		if d.timer == nil {
+			d.timer = time.AfterFunc(d.OperabilityTimeout, d.operabilityCBTimeout)
 		} else {
-			device.timer.Reset(device.OperabilityTimeout)
+			d.timer.Reset(d.OperabilityTimeout)
 		}
 	}
 
-	oldVariant, err := device.properties.Get(dbusDeviceInterface, propertyOperabilityState)
+	oldVariant, err := d.properties.Get(dbusDeviceInterface, propertyOperabilityState)
 
 	if err != nil {
 		return
@@ -261,17 +235,17 @@ func (device *Device) SetOperabilityState(state OperabilityState) {
 		return
 	}
 
-	device.log.Info("OperabilityState of the device", device.DevID, "changed from", oldState, "to", state)
-	device.properties.SetMust(dbusDeviceInterface, propertyOperabilityState, state)
+	d.log.Info("OperabilityState of the device", d.DevID, "changed from", oldState, "to", state)
+	d.properties.SetMust(dbusDeviceInterface, propertyOperabilityState, state)
 }
 
 // SetPairingState set the value of the property PairingState
-func (device *Device) SetPairingState(state PairingState) {
-	if device.properties == nil {
+func (d *Device) SetPairingState(state PairingState) {
+	if d.properties == nil {
 		return
 	}
 
-	oldVariant, err := device.properties.Get(dbusDeviceInterface, propertyPairingState)
+	oldVariant, err := d.properties.Get(dbusDeviceInterface, propertyPairingState)
 
 	if err != nil {
 		return
@@ -282,31 +256,31 @@ func (device *Device) SetPairingState(state PairingState) {
 		return
 	}
 
-	device.log.Info("propertyPairingState of the device", device.DevID, "changed from", oldState, "to", state)
-	device.properties.SetMust(dbusDeviceInterface, propertyPairingState, state)
+	d.log.Info("propertyPairingState of the device", d.DevID, "changed from", oldState, "to", state)
+	d.properties.SetMust(dbusDeviceInterface, propertyPairingState, state)
 }
 
 // SetVersion set the value of the property Version
-func (device *Device) SetVersion(newVersion string) {
-	if device.properties == nil {
+func (d *Device) SetVersion(newVersion string) {
+	if d.properties == nil {
 		return
 	}
 
-	if device.FirmwareVersion == newVersion {
+	if d.FirmwareVersion == newVersion {
 		return
 	}
 
-	device.log.Info("Version of the device", device.DevID, "changed from", device.FirmwareVersion, "to", newVersion)
-	device.properties.SetMust(dbusDeviceInterface, propertyVersion, newVersion)
+	d.log.Info("Version of the device", d.DevID, "changed from", d.FirmwareVersion, "to", newVersion)
+	d.properties.SetMust(dbusDeviceInterface, propertyVersion, newVersion)
 }
 
 // SetOption set the value of the property Option
-func (device *Device) SetOption(options []byte) {
-	if device.properties == nil {
+func (d *Device) SetOption(options []byte) {
+	if d.properties == nil {
 		return
 	}
 
-	oldVariant, err := device.properties.Get(dbusDeviceInterface, propertyOptions)
+	oldVariant, err := d.properties.Get(dbusDeviceInterface, propertyOptions)
 
 	if err != nil {
 		return
@@ -318,6 +292,49 @@ func (device *Device) SetOption(options []byte) {
 		return
 	}
 
-	device.log.Info("propertyOptions of the device", device.DevID, "changed from", oldState, "to", newState)
-	device.properties.SetMust(dbusDeviceInterface, propertyOptions, newState)
+	d.log.Info("propertyOptions of the device", d.DevID, "changed from", oldState, "to", newState)
+	d.properties.SetMust(dbusDeviceInterface, propertyOptions, newState)
+}
+
+// SetCallbacks set new callbacks for this device
+func (d *Device) SetCallbacks() {
+	switch cb := d.Protocol.cbs.(type) {
+	case interface{ AddItem(*Item) }:
+		d.addItemCB = cb
+	}
+	switch cb := d.Protocol.cbs.(type) {
+	case interface{ RemoveItem(string, string) }:
+		d.removeItemCB = cb
+	}
+	switch cb := d.Protocol.cbs.(type) {
+	case interface{ SetDeviceOptions(*Device) }:
+		d.setDeviceOptionCb = cb
+	}
+	switch cb := d.Protocol.cbs.(type) {
+	case interface{ UpdateFirmware(*Device, string) }:
+		d.updateFirmwareCb = cb
+	}
+	switch cb := d.Protocol.cbs.(type) {
+	case interface{ OperabilityWentKo(*Device) }:
+		d.operabilityTimeoutCB = cb
+	}
+}
+
+// SetDbusMethods set new dbusMethods for this device
+func (d *Device) SetDbusMethods(externalMethods map[string]interface{}) bool {
+	path := dbus.ObjectPath(dbusPathPrefix + d.Protocol.protocolName + "/" + d.DevID)
+	exportedMethods := make(map[string]interface{})
+	exportedMethods["AddItem"] = d.AddItem
+	exportedMethods["RemoveItem"] = d.RemoveItem
+
+	for name, inter := range externalMethods {
+		exportedMethods[name] = inter
+	}
+
+	err := d.Protocol.dc.conn.ExportMethodTable(exportedMethods, path, dbusDeviceInterface)
+	if err != nil {
+		d.log.Warning("Fail to export device dbus object", d.DevID, err)
+		return false
+	}
+	return true
 }

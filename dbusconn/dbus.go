@@ -31,7 +31,8 @@ func isNil(i interface{}) bool {
 }
 
 // InitDbus initalizes dbus connection
-func (dc *Dbus) InitDbus() bool {
+func (dc *Dbus) InitDbus(protocolName string, cbs interface{}) bool {
+	dc.ProtocolName = protocolName
 	if dc.Log == nil {
 		dc.Log = logging.MustGetLogger("dbus-adapter")
 	}
@@ -56,5 +57,5 @@ func (dc *Dbus) InitDbus() bool {
 	dc.Log.Info("Connected on DBus")
 
 	dc.Bridges = map[string]*BridgeProto{}
-	return dc.exportRootProtocolObject(dc.ProtocolName)
+	return dc.initRootProtocol(cbs)
 }
