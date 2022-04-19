@@ -31,7 +31,7 @@ func isNil(i interface{}) bool {
 }
 
 // InitDbus initalizes dbus connection
-func (dc *Dbus) InitDbus(protocolName string, cbs interface{}) bool {
+func (dc *Dbus) InitDbus(protocolName string, cbs interface{}) *Protocol {
 	dc.ProtocolName = protocolName
 	if dc.Log == nil {
 		dc.Log = logging.MustGetLogger("dbus-adapter")
@@ -39,14 +39,14 @@ func (dc *Dbus) InitDbus(protocolName string, cbs interface{}) bool {
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		dc.Log.Error("Fail to request Dbus systembus", err)
-		return false
+		return nil
 	}
 
 	dbusName := dbusNamePrefix + dc.ProtocolName
 	reply, err := conn.RequestName(dbusName, dbus.NameFlagReplaceExisting|dbus.NameFlagDoNotQueue)
 	if err != nil {
 		dc.Log.Error("Fail to request Dbus name", err)
-		return false
+		return nil
 	}
 
 	if reply != dbus.RequestNameReplyPrimaryOwner {

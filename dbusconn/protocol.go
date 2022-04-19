@@ -57,10 +57,10 @@ type BridgeProto struct {
 	dc       *Dbus
 }
 
-func (dc *Dbus) initRootProtocol(cbs interface{}) bool {
+func (dc *Dbus) initRootProtocol(cbs interface{}) *Protocol {
 	if dc.conn == nil {
 		dc.Log.Warning("Unable to export Protocol dbus object because dbus connection nil")
-		return false
+		return nil
 	}
 
 	dc.RootProtocol.dc = dc
@@ -77,16 +77,16 @@ func (dc *Dbus) initRootProtocol(cbs interface{}) bool {
 	}
 
 	if !dc.RootProtocol.Protocol.SetDbusProperties(nil) {
-		return false
+		return nil
 	}
 
 	if !dc.RootProtocol.Protocol.SetDbusMethods(nil) {
-		return false
+		return nil
 	}
 
 	dc.RootProtocol.SetRootProtocolCBs(cbs)
 	dc.RootProtocol.Protocol.SetProtocolCBs(cbs)
-	return true
+	return dc.RootProtocol.Protocol
 }
 
 func (r *RootProto) setLogLevel(c *prop.Change) *dbus.Error {
@@ -110,7 +110,7 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 	r.Protocol.Lock()
 	_, alreadyAdded := r.dc.Bridges[bridgeID]
 	if !alreadyAdded {
-		var proto = &Protocol{ready: false,
+		var p = &Protocol{ready: false,
 			dc:           r.dc,
 			Devices:      make(map[string]*Device),
 			log:          r.log,
@@ -119,18 +119,17 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 			cbs:          r.Protocol.cbs,
 			isBridged:    true,
 		}
-		path := dbus.ObjectPath(dbusPathPrefix + protoName)
 
-		proto.SetDbusProperties(nil)
-		proto.SetDbusMethods(nil)
-		proto.SetProtocolCBs(proto.cbs)
+		p.SetDbusProperties(nil)
+		p.SetDbusMethods(nil)
+		p.SetProtocolCBs(p.cbs)
 
-		var bridge = &BridgeProto{Protocol: proto, dc: r.dc}
+		var bridge = &BridgeProto{Protocol: p, dc: r.dc}
 		r.dc.Bridges[bridgeID] = bridge
 		if !isNil(r.addBridgeCB) {
-			go r.addBridgeCB.AddBridge(proto)
+			go r.addBridgeCB.AddBridge(p)
 		}
-		r.dc.conn.Emit(path, dbusProtocolInterface+"."+signalBridgeAdded)
+		p.EmitDbusSignal(signalBridgeAdded)
 	}
 	r.Protocol.Unlock()
 	return alreadyAdded, nil
@@ -193,6 +192,12 @@ func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
 	}
 	p.Unlock()
 	return nil
+}
+
+// EmitDbusSignal emit a dbus signal from protocol object
+func (p *Protocol) EmitDbusSignal(sigName string, args ...interface{}) {
+	path := dbus.ObjectPath(dbusPathPrefix + p.protocolName)
+	p.dc.conn.Emit(path, dbusProtocolInterface+"."+sigName, args...)
 }
 
 // Ready set the Protocol object parameter "ready" to true
