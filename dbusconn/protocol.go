@@ -144,24 +144,8 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 			isBridged:    true,
 		}
 		path := dbus.ObjectPath(dbusPathPrefix + protoName)
-		propsSpec := map[string]map[string]*prop.Prop{
-			dbusProtocolInterface: {
-				propertyReachabilityState: {
-					Value:    proto.Reachability,
-					Writable: false,
-					Emit:     prop.EmitTrue,
-					Callback: nil,
-				},
-			},
-		}
 
-		properties, err := prop.Export(r.dc.conn, path, propsSpec)
-		if err == nil {
-			proto.properties = properties
-		} else {
-			proto.log.Error("Fail to export the properties of the protocol", protoName, err)
-			return false, &dbus.Error{Name: "Property export", Body: []interface{}{err}}
-		}
+		proto.SetDbusProperties(nil)
 		proto.SetDbusMethods(nil)
 		proto.SetProtocolCBs()
 
@@ -263,6 +247,34 @@ func (p *Protocol) SetDbusMethods(externalMethods map[string]interface{}) bool {
 	err := p.dc.conn.ExportMethodTable(exportedMethods, path, dbusProtocolInterface)
 	if err != nil {
 		p.dc.Log.Warning("Fail to export protocol dbus object", p.protocolName, err)
+		return false
+	}
+	return true
+}
+
+// SetDbusProperties set new DBus properties for this protocol
+func (p *Protocol) SetDbusProperties(externalProperties map[string]*prop.Prop) bool {
+	path := dbus.ObjectPath(dbusPathPrefix + p.protocolName)
+	propsSpec := map[string]map[string]*prop.Prop{
+		dbusProtocolInterface: {
+			propertyReachabilityState: {
+				Value:    p.Reachability,
+				Writable: false,
+				Emit:     prop.EmitTrue,
+				Callback: nil,
+			},
+		},
+	}
+
+	for pName, pr := range externalProperties {
+		propsSpec[dbusDeviceInterface][pName] = pr
+	}
+
+	properties, err := prop.Export(p.dc.conn, path, propsSpec)
+	if err == nil {
+		p.properties = properties
+	} else {
+		p.log.Error("Fail to export the properties of the protocol", p.protocolName, err)
 		return false
 	}
 	return true

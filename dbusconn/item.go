@@ -56,38 +56,8 @@ func initItem(itemID string, typeID string, typeVersion string, options []byte, 
 
 	path := dbus.ObjectPath(dbusPathPrefix + i.Device.Protocol.protocolName + "/" + i.Device.DevID + "/" + i.ItemID)
 
-	// properties
-	propsSpec := map[string]map[string]*prop.Prop{
-		dbusItemInterface: {
-			propertyOptions: {
-				Value:    i.Options,
-				Writable: true,
-				Emit:     prop.EmitTrue,
-				Callback: i.setItemOptions,
-			},
-			propertyTarget: {
-				Value:    i.Target,
-				Writable: true,
-				Emit:     prop.EmitTrue,
-				Callback: i.setItemTarget,
-			},
-			propertyValue: {
-				Value:    i.Value,
-				Writable: false,
-				Emit:     prop.EmitTrue,
-				Callback: nil,
-			},
-		},
-	}
-	properties, err := prop.Export(i.dc.conn, path, propsSpec)
-	if err == nil {
-		i.properties = properties
-	} else {
-		i.log.Error("Fail to export the properties of the device", i.Device.DevID, i.ItemID, err)
-	}
-
+	i.SetDbusProperties(nil)
 	i.dc.conn.Export(i, path, dbusItemInterface)
-
 	i.SetCallbacks(d.Protocol.cbs)
 
 	if !isNil(d.addItemCB) {
@@ -194,4 +164,44 @@ func (i *Item) SetValue(value []byte) {
 
 	i.log.Info("propertyValue of the item", i.ItemID, "changed from", oldState, "to", newState)
 	i.properties.SetMust(dbusItemInterface, propertyValue, newState)
+}
+
+// SetDbusProperties set new DBus properties for this item
+func (i *Item) SetDbusProperties(externalProperties map[string]*prop.Prop) bool {
+	path := dbus.ObjectPath(dbusPathPrefix + i.Device.Protocol.protocolName + "/" + i.Device.DevID + "/" + i.ItemID)
+	propsSpec := map[string]map[string]*prop.Prop{
+		dbusItemInterface: {
+			propertyOptions: {
+				Value:    i.Options,
+				Writable: true,
+				Emit:     prop.EmitTrue,
+				Callback: i.setItemOptions,
+			},
+			propertyTarget: {
+				Value:    i.Target,
+				Writable: true,
+				Emit:     prop.EmitTrue,
+				Callback: i.setItemTarget,
+			},
+			propertyValue: {
+				Value:    i.Value,
+				Writable: false,
+				Emit:     prop.EmitTrue,
+				Callback: nil,
+			},
+		},
+	}
+
+	for pName, p := range externalProperties {
+		propsSpec[dbusDeviceInterface][pName] = p
+	}
+
+	properties, err := prop.Export(i.dc.conn, path, propsSpec)
+	if err == nil {
+		i.properties = properties
+	} else {
+		i.log.Error("Fail to export the properties of the device", i.Device.DevID, i.ItemID, err)
+		return false
+	}
+	return true
 }

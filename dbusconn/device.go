@@ -95,43 +95,7 @@ func initDevice(devID string, address string, typeID string, typeVersion string,
 
 	path := dbus.ObjectPath(dbusPathPrefix + device.Protocol.protocolName + "/" + device.DevID)
 
-	// properties
-	propsSpec := map[string]map[string]*prop.Prop{
-		dbusDeviceInterface: {
-			propertyOperabilityState: {
-				Value:    device.Operability,
-				Writable: false,
-				Emit:     prop.EmitTrue,
-				Callback: nil,
-			},
-			propertyPairingState: {
-				Value:    device.PairingState,
-				Writable: false,
-				Emit:     prop.EmitTrue,
-				Callback: nil,
-			},
-			propertyVersion: {
-				Value:    device.FirmwareVersion,
-				Writable: false,
-				Emit:     prop.EmitTrue,
-				Callback: nil,
-			},
-			propertyOptions: {
-				Value:    device.Options,
-				Writable: true,
-				Emit:     prop.EmitTrue,
-				Callback: device.setDeviceOptions,
-			},
-		},
-	}
-
-	properties, err := prop.Export(p.dc.conn, path, propsSpec)
-	if err == nil {
-		device.properties = properties
-	} else {
-		p.log.Error("Fail to export the properties of the device", device.DevID, err)
-	}
-
+	device.SetDbusProperties(nil)
 	device.SetDbusMethods(nil)
 	device.SetCallbacks()
 	if !isNil(p.addDeviceCB) {
@@ -334,6 +298,52 @@ func (d *Device) SetDbusMethods(externalMethods map[string]interface{}) bool {
 	err := d.Protocol.dc.conn.ExportMethodTable(exportedMethods, path, dbusDeviceInterface)
 	if err != nil {
 		d.log.Warning("Fail to export device dbus object", d.DevID, err)
+		return false
+	}
+	return true
+}
+
+// SetDbusProperties set new DBus properties for this device
+func (d *Device) SetDbusProperties(externalProperties map[string]*prop.Prop) bool {
+	path := dbus.ObjectPath(dbusPathPrefix + d.Protocol.protocolName + "/" + d.DevID)
+	propsSpec := map[string]map[string]*prop.Prop{
+		dbusDeviceInterface: {
+			propertyOperabilityState: {
+				Value:    d.Operability,
+				Writable: false,
+				Emit:     prop.EmitTrue,
+				Callback: nil,
+			},
+			propertyPairingState: {
+				Value:    d.PairingState,
+				Writable: false,
+				Emit:     prop.EmitTrue,
+				Callback: nil,
+			},
+			propertyVersion: {
+				Value:    d.FirmwareVersion,
+				Writable: false,
+				Emit:     prop.EmitTrue,
+				Callback: nil,
+			},
+			propertyOptions: {
+				Value:    d.Options,
+				Writable: true,
+				Emit:     prop.EmitTrue,
+				Callback: d.setDeviceOptions,
+			},
+		},
+	}
+
+	for pName, p := range externalProperties {
+		propsSpec[dbusDeviceInterface][pName] = p
+	}
+
+	properties, err := prop.Export(d.dc.conn, path, propsSpec)
+	if err == nil {
+		d.properties = properties
+	} else {
+		d.log.Error("Fail to export the properties of the device", d.DevID, err)
 		return false
 	}
 	return true
