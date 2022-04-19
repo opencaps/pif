@@ -78,7 +78,7 @@ type OperabilityState string
 type PairingState string
 
 func initDevice(devID string, address string, typeID string, typeVersion string, options []byte, p *Protocol) {
-	device := &Device{
+	d := &Device{
 		DevID:        devID,
 		Address:      address,
 		TypeID:       typeID,
@@ -91,19 +91,19 @@ func initDevice(devID string, address string, typeID string, typeVersion string,
 		log:          p.log,
 		dc:           p.dc,
 	}
-	p.Devices[devID] = device
+	p.Devices[devID] = d
 
-	path := dbus.ObjectPath(dbusPathPrefix + device.Protocol.protocolName + "/" + device.DevID)
+	path := dbus.ObjectPath(dbusPathPrefix + d.Protocol.protocolName + "/" + d.DevID)
 
-	device.SetDbusProperties(nil)
-	device.SetDbusMethods(nil)
-	device.SetCallbacks()
+	d.SetDbusProperties(nil)
+	d.SetDbusMethods(nil)
+	d.SetCallbacks(d.Protocol.cbs)
 	if !isNil(p.addDeviceCB) {
 		go p.addDeviceCB.AddDevice(p.Devices[devID])
 	}
 
 	//Emit Device Added
-	p.dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceAdded, []interface{}{device.Address, device.TypeID, device.TypeVersion, device.Options})
+	p.dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceAdded, []interface{}{d.Address, d.TypeID, d.TypeVersion, d.Options})
 }
 
 func removeDevice(d *Device) {
@@ -261,24 +261,24 @@ func (d *Device) SetOption(options []byte) {
 }
 
 // SetCallbacks set new callbacks for this device
-func (d *Device) SetCallbacks() {
-	switch cb := d.Protocol.cbs.(type) {
+func (d *Device) SetCallbacks(cbs interface{}) {
+	switch cb := cbs.(type) {
 	case interface{ AddItem(*Item) }:
 		d.addItemCB = cb
 	}
-	switch cb := d.Protocol.cbs.(type) {
+	switch cb := cbs.(type) {
 	case interface{ RemoveItem(string, string) }:
 		d.removeItemCB = cb
 	}
-	switch cb := d.Protocol.cbs.(type) {
+	switch cb := cbs.(type) {
 	case interface{ SetDeviceOptions(*Device) }:
 		d.setDeviceOptionCb = cb
 	}
-	switch cb := d.Protocol.cbs.(type) {
+	switch cb := cbs.(type) {
 	case interface{ UpdateFirmware(*Device, string) }:
 		d.updateFirmwareCb = cb
 	}
-	switch cb := d.Protocol.cbs.(type) {
+	switch cb := cbs.(type) {
 	case interface{ OperabilityWentKo(*Device) }:
 		d.operabilityTimeoutCB = cb
 	}
