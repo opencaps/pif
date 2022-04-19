@@ -108,6 +108,7 @@ func removeItem(i *Item) {
 	}
 	delete(d.Items, i.ItemID)
 	d.dc.conn.Emit(path, dbusItemInterface+"."+signalItemRemoved)
+	d.dc.conn.Export(nil, path, dbusItemInterface)
 }
 
 func (i *Item) setItemOptions(c *prop.Change) *dbus.Error {

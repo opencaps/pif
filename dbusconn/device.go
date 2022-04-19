@@ -155,6 +155,7 @@ func removeDevice(d *Device) {
 	d.Unlock()
 	delete(p.Devices, d.DevID)
 	p.dc.conn.Emit(path, dbusDeviceInterface+"."+signalDeviceRemoved)
+	p.dc.conn.Export(nil, path, dbusDeviceInterface)
 }
 
 func (d *Device) operabilityCBTimeout() {

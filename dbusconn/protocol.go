@@ -128,6 +128,8 @@ func (r *RootProto) setLogLevel(c *prop.Change) *dbus.Error {
 
 //AddBridge is the dbus method to add a new bridge
 func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
+	r.log.Info("AddBridge called - bridgeID:", bridgeID)
+
 	protoName := r.dc.ProtocolName + "_" + bridgeID
 	r.Protocol.Lock()
 	_, alreadyAdded := r.dc.Bridges[bridgeID]
@@ -176,6 +178,7 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 
 //AddDevice is the dbus method to add a new device
 func (p *Protocol) AddDevice(devID string, comID string, typeID string, typeVersion string, options []byte) (bool, *dbus.Error) {
+	p.log.Info("AddDevice called - devID:", devID, "comID:", comID, "typeID:", typeID, "typeVersion:", options, "typeVersion:", options)
 	p.Lock()
 	_, alreadyAdded := p.Devices[devID]
 	if !alreadyAdded {
@@ -195,6 +198,7 @@ func (p *Protocol) IsReady() (bool, *dbus.Error) {
 
 //RemoveBridge is the dbus method to remove a bridge
 func (r *RootProto) RemoveBridge(bridgeID string) *dbus.Error {
+	r.log.Info("RemoveBridge called - bridgeID:", bridgeID)
 	r.Protocol.Lock()
 	bridge, bridgePresent := r.dc.Bridges[bridgeID]
 
@@ -202,11 +206,11 @@ func (r *RootProto) RemoveBridge(bridgeID string) *dbus.Error {
 		r.Protocol.Unlock()
 		return nil
 	}
-	bridge.Protocol.Lock()
 
 	for device := range bridge.Protocol.Devices {
 		bridge.Protocol.RemoveDevice(device)
 	}
+	bridge.Protocol.Lock()
 	if !isNil(r.removeBridgeCB) {
 		go r.removeBridgeCB.RemoveBridge(bridgeID)
 	}
@@ -214,12 +218,14 @@ func (r *RootProto) RemoveBridge(bridgeID string) *dbus.Error {
 	delete(r.dc.Bridges, bridgeID)
 	path := dbus.ObjectPath(dbusPathPrefix + bridgeID + "_" + bridgeID)
 	r.dc.conn.Emit(path, dbusProtocolInterface+"."+signalBridgeRemoved)
+	r.dc.conn.Export(nil, path, dbusProtocolInterface)
 	r.Protocol.Unlock()
 	return nil
 }
 
 //RemoveDevice is the dbus method to remove a device
 func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
+	p.log.Info("RemoveDevice called - devID:", devID)
 	p.Lock()
 	d, devicePresent := p.Devices[devID]
 	if devicePresent {
