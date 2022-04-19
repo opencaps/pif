@@ -46,7 +46,6 @@ type Protocol struct {
 type RootProto struct {
 	Protocol       *Protocol
 	dc             *Dbus
-	properties     *prop.Properties
 	log            *logging.Logger
 	addBridgeCB    interface{ AddBridge(*Protocol) }
 	removeBridgeCB interface{ RemoveBridge(string) }
@@ -77,39 +76,16 @@ func (dc *Dbus) initRootProtocol(cbs interface{}) bool {
 		isBridged:    false,
 	}
 
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName)
-
-	// properties
-	rootPropsSpec := map[string]map[string]*prop.Prop{
-		dbusProtocolInterface: {
-			propertyLogLevel: {
-				Value:    logging.GetLevel(dc.RootProtocol.log.Module).String(),
-				Writable: true,
-				Emit:     prop.EmitTrue,
-				Callback: dc.RootProtocol.setLogLevel,
-			},
-			propertyReachabilityState: {
-				Value:    dc.RootProtocol.Protocol.Reachability,
-				Writable: false,
-				Emit:     prop.EmitTrue,
-				Callback: nil,
-			},
-		},
-	}
-
-	rootProperties, err := prop.Export(dc.conn, path, rootPropsSpec)
-	if err == nil {
-		dc.RootProtocol.properties = rootProperties
-	} else {
-		dc.Log.Error("Fail to export the properties of the root protocol", dc.ProtocolName, err)
+	if !dc.RootProtocol.Protocol.SetDbusProperties(nil) {
+		return false
 	}
 
 	if !dc.RootProtocol.Protocol.SetDbusMethods(nil) {
 		return false
 	}
 
-	dc.RootProtocol.SetRootProtocolCBs()
-	dc.RootProtocol.Protocol.SetProtocolCBs()
+	dc.RootProtocol.SetRootProtocolCBs(cbs)
+	dc.RootProtocol.Protocol.SetProtocolCBs(cbs)
 	return true
 }
 
@@ -144,26 +120,10 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 			isBridged:    true,
 		}
 		path := dbus.ObjectPath(dbusPathPrefix + protoName)
-		propsSpec := map[string]map[string]*prop.Prop{
-			dbusProtocolInterface: {
-				propertyReachabilityState: {
-					Value:    proto.Reachability,
-					Writable: false,
-					Emit:     prop.EmitTrue,
-					Callback: nil,
-				},
-			},
-		}
 
-		properties, err := prop.Export(r.dc.conn, path, propsSpec)
-		if err == nil {
-			proto.properties = properties
-		} else {
-			proto.log.Error("Fail to export the properties of the protocol", protoName, err)
-			return false, &dbus.Error{Name: "Property export", Body: []interface{}{err}}
-		}
+		proto.SetDbusProperties(nil)
 		proto.SetDbusMethods(nil)
-		proto.SetProtocolCBs()
+		proto.SetProtocolCBs(proto.cbs)
 
 		var bridge = &BridgeProto{Protocol: proto, dc: r.dc}
 		r.dc.Bridges[bridgeID] = bridge
@@ -268,13 +228,51 @@ func (p *Protocol) SetDbusMethods(externalMethods map[string]interface{}) bool {
 	return true
 }
 
+// SetDbusProperties set new DBus properties for this protocol
+func (p *Protocol) SetDbusProperties(externalProperties map[string]*prop.Prop) bool {
+	path := dbus.ObjectPath(dbusPathPrefix + p.protocolName)
+	propsSpec := map[string]map[string]*prop.Prop{
+		dbusProtocolInterface: {
+			propertyReachabilityState: {
+				Value:    p.Reachability,
+				Writable: false,
+				Emit:     prop.EmitTrue,
+				Callback: nil,
+			},
+		},
+	}
+
+	if p.isBridged {
+		rootPropsSpec := prop.Prop{
+			Value:    logging.GetLevel(p.dc.RootProtocol.log.Module).String(),
+			Writable: true,
+			Emit:     prop.EmitTrue,
+			Callback: p.dc.RootProtocol.setLogLevel,
+		}
+		propsSpec[dbusProtocolInterface][propertyLogLevel] = &rootPropsSpec
+	}
+
+	for pName, pr := range externalProperties {
+		propsSpec[dbusProtocolInterface][pName] = pr
+	}
+
+	properties, err := prop.Export(p.dc.conn, path, propsSpec)
+	if err == nil {
+		p.properties = properties
+	} else {
+		p.log.Error("Fail to export the properties of the protocol", p.protocolName, err)
+		return false
+	}
+	return true
+}
+
 // SetCallbacks set new callbacks for this protocol
-func (p *Protocol) SetProtocolCBs() {
-	switch cb := p.cbs.(type) {
+func (p *Protocol) SetProtocolCBs(cbs interface{}) {
+	switch cb := cbs.(type) {
 	case interface{ AddDevice(*Device) }:
 		p.addDeviceCB = cb
 	}
-	switch cb := p.cbs.(type) {
+	switch cb := cbs.(type) {
 	case interface{ RemoveDevice(string) }:
 		p.removeDeviceCB = cb
 	}
@@ -301,12 +299,12 @@ func (p *Protocol) SetReachabilityState(state ReachabilityState) {
 }
 
 // SetCallbacks set new callbacks for this Root protocol
-func (r *RootProto) SetRootProtocolCBs() {
-	switch cb := r.Protocol.cbs.(type) {
+func (r *RootProto) SetRootProtocolCBs(cbs interface{}) {
+	switch cb := cbs.(type) {
 	case interface{ AddBridge(*Protocol) }:
 		r.addBridgeCB = cb
 	}
-	switch cb := r.Protocol.cbs.(type) {
+	switch cb := cbs.(type) {
 	case interface{ RemoveBridge(string) }:
 		r.removeBridgeCB = cb
 	}
