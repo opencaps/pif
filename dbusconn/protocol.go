@@ -274,7 +274,7 @@ func (p *Protocol) SetDbusProperties(externalProperties map[string]*prop.Prop) b
 	return true
 }
 
-// SetCallbacks set new callbacks for this protocol
+// SetProtocolCBs set new callbacks for this protocol
 func (p *Protocol) SetProtocolCBs(cbs interface{}) {
 	switch cb := cbs.(type) {
 	case interface{ AddDevice(*Device) }:
@@ -306,7 +306,7 @@ func (p *Protocol) SetReachabilityState(state ReachabilityState) {
 	p.properties.SetMust(dbusProtocolInterface, propertyReachabilityState, state)
 }
 
-// SetCallbacks set new callbacks for this Root protocol
+// SetRootProtocolCBs set new callbacks for this Root protocol
 func (r *RootProto) SetRootProtocolCBs(cbs interface{}) {
 	switch cb := cbs.(type) {
 	case interface{ AddBridge(*Protocol) }:
