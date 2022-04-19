@@ -37,8 +37,6 @@ type Protocol struct {
 	protocolName   string
 	addDeviceCB    interface{ AddDevice(*Device) }
 	removeDeviceCB interface{ RemoveDevice(string) }
-	addItemCB      interface{ AddItem(*Item) }
-	removeItemCB   interface{ RemoveItem(string, string) }
 	cbs            interface{}
 	isBridged      bool
 	sync.Mutex
@@ -60,7 +58,7 @@ type BridgeProto struct {
 	dc       *Dbus
 }
 
-func (dc *Dbus) initRootProtocolObject(cbs interface{}) bool {
+func (dc *Dbus) initRootProtocol(cbs interface{}) bool {
 	if dc.conn == nil {
 		dc.Log.Warning("Unable to export Protocol dbus object because dbus connection nil")
 		return false
@@ -82,7 +80,23 @@ func (dc *Dbus) initRootProtocolObject(cbs interface{}) bool {
 	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName)
 
 	// properties
-	rootPropsSpec := initRootProtocolProp(&dc.RootProtocol)
+	rootPropsSpec := map[string]map[string]*prop.Prop{
+		dbusProtocolInterface: {
+			propertyLogLevel: {
+				Value:    logging.GetLevel(dc.RootProtocol.log.Module).String(),
+				Writable: true,
+				Emit:     prop.EmitTrue,
+				Callback: dc.RootProtocol.setLogLevel,
+			},
+			propertyReachabilityState: {
+				Value:    dc.RootProtocol.Protocol.Reachability,
+				Writable: false,
+				Emit:     prop.EmitTrue,
+				Callback: nil,
+			},
+		},
+	}
+
 	rootProperties, err := prop.Export(dc.conn, path, rootPropsSpec)
 	if err == nil {
 		dc.RootProtocol.properties = rootProperties
@@ -99,74 +113,17 @@ func (dc *Dbus) initRootProtocolObject(cbs interface{}) bool {
 	return true
 }
 
-// IsReady dbus method to know if the protocol is ready or not
-func (p *Protocol) IsReady() (bool, *dbus.Error) {
-	p.Lock()
-	var ready = p.ready
-	p.Unlock()
-
-	return ready, nil
-}
-
-func (dc *Dbus) emitBridgeAdded(bridgeID string) {
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "_" + bridgeID)
-	dc.conn.Emit(path, dbusProtocolInterface+"."+signalBridgeAdded)
-}
-
-func (dc *Dbus) emitBridgeRemoved(bridgeID string) {
-	path := dbus.ObjectPath(dbusPathPrefix + dc.ProtocolName + "_" + bridgeID)
-	dc.conn.Emit(path, dbusProtocolInterface+"."+signalBridgeRemoved)
-}
-
-//AddDevice is the dbus method to add a new device
-func (p *Protocol) AddDevice(devID string, comID string, typeID string, typeVersion string, options []byte) (bool, *dbus.Error) {
-	p.Lock()
-	_, alreadyAdded := p.Devices[devID]
-	if !alreadyAdded {
-		device := initDevice(devID, comID, typeID, typeVersion, options, p)
-		p.Devices[devID] = device
-		p.dc.exportDeviceOnDbus(p.Devices[devID])
-		device.SetCallbacks()
-		if !isNil(p.addDeviceCB) {
-			go p.addDeviceCB.AddDevice(p.Devices[devID])
-		}
-		p.dc.emitDeviceAdded(device)
+func (r *RootProto) setLogLevel(c *prop.Change) *dbus.Error {
+	loglevel := c.Value.(string)
+	level, err := logging.LogLevel(loglevel)
+	if err == nil {
+		logging.SetLevel(level, r.dc.Log.Module)
+		r.log.Info("Log level has been set to ", c.Value.(string))
+		return &dbus.ErrMsgInvalidArg
+	} else {
+		r.log.Error(err)
 	}
-	p.Unlock()
-	return alreadyAdded, nil
-}
-
-//RemoveDevice is the dbus method to remove a device
-func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
-	p.Lock()
-	device, devicePresent := p.Devices[devID]
-
-	if !devicePresent {
-		p.Unlock()
-		return nil
-	}
-	device.Lock()
-
-	for item := range device.Items {
-		delete(device.Items, item)
-	}
-	if !isNil(p.removeDeviceCB) {
-		go p.removeDeviceCB.RemoveDevice(devID)
-	}
-	p.dc.emitDeviceRemoved(device)
-	device.Unlock()
-	delete(p.Devices, devID)
-	p.Unlock()
 	return nil
-}
-
-// Ready set the Protocol object parameter "ready" to true
-func (p *Protocol) Ready() {
-	if p != nil {
-		p.Lock()
-		p.ready = true
-		p.Unlock()
-	}
 }
 
 //AddBridge is the dbus method to add a new bridge
@@ -185,7 +142,17 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 			isBridged:    true,
 		}
 		path := dbus.ObjectPath(dbusPathPrefix + protoName)
-		propsSpec := initProtocolProp(proto)
+		propsSpec := map[string]map[string]*prop.Prop{
+			dbusProtocolInterface: {
+				propertyReachabilityState: {
+					Value:    proto.Reachability,
+					Writable: false,
+					Emit:     prop.EmitTrue,
+					Callback: nil,
+				},
+			},
+		}
+
 		properties, err := prop.Export(r.dc.conn, path, propsSpec)
 		if err == nil {
 			proto.properties = properties
@@ -201,15 +168,33 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 		if !isNil(r.addBridgeCB) {
 			go r.addBridgeCB.AddBridge(proto)
 		}
-		r.dc.emitBridgeAdded(bridgeID)
+		r.dc.conn.Emit(path, dbusProtocolInterface+"."+signalBridgeAdded)
 	}
 	r.Protocol.Unlock()
 	return alreadyAdded, nil
 }
 
+//AddDevice is the dbus method to add a new device
+func (p *Protocol) AddDevice(devID string, comID string, typeID string, typeVersion string, options []byte) (bool, *dbus.Error) {
+	p.Lock()
+	_, alreadyAdded := p.Devices[devID]
+	if !alreadyAdded {
+		initDevice(devID, comID, typeID, typeVersion, options, p)
+	}
+	p.Unlock()
+	return alreadyAdded, nil
+}
+
+// IsReady dbus method to know if the protocol is ready or not
+func (p *Protocol) IsReady() (bool, *dbus.Error) {
+	p.Lock()
+	var ready = p.ready
+	p.Unlock()
+	return ready, nil
+}
+
 //RemoveBridge is the dbus method to remove a bridge
 func (r *RootProto) RemoveBridge(bridgeID string) *dbus.Error {
-
 	r.Protocol.Lock()
 	bridge, bridgePresent := r.dc.Bridges[bridgeID]
 
@@ -227,106 +212,29 @@ func (r *RootProto) RemoveBridge(bridgeID string) *dbus.Error {
 	}
 	bridge.Protocol.Unlock()
 	delete(r.dc.Bridges, bridgeID)
-	r.dc.emitBridgeRemoved(bridgeID)
+	path := dbus.ObjectPath(dbusPathPrefix + bridgeID + "_" + bridgeID)
+	r.dc.conn.Emit(path, dbusProtocolInterface+"."+signalBridgeRemoved)
 	r.Protocol.Unlock()
 	return nil
 }
 
-func (r *RootProto) setLogLevel(c *prop.Change) *dbus.Error {
-	loglevel := c.Value.(string)
-	level, err := logging.LogLevel(loglevel)
-	if err == nil {
-		logging.SetLevel(level, r.dc.Log.Module)
-		r.log.Info("Log level has been set to ", c.Value.(string))
-		return &dbus.ErrMsgInvalidArg
-	} else {
-		r.log.Error(err)
+//RemoveDevice is the dbus method to remove a device
+func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
+	p.Lock()
+	d, devicePresent := p.Devices[devID]
+	if devicePresent {
+		removeDevice(d)
 	}
+	p.Unlock()
 	return nil
 }
 
-func initRootProtocolProp(r *RootProto) map[string]map[string]*prop.Prop {
-	return map[string]map[string]*prop.Prop{
-		dbusProtocolInterface: {
-			propertyLogLevel: {
-				Value:    logging.GetLevel(r.log.Module).String(),
-				Writable: true,
-				Emit:     prop.EmitTrue,
-				Callback: r.setLogLevel,
-			},
-			propertyReachabilityState: {
-				Value:    r.Protocol.Reachability,
-				Writable: false,
-				Emit:     prop.EmitTrue,
-				Callback: nil,
-			},
-		},
-	}
-}
-
-func initProtocolProp(p *Protocol) map[string]map[string]*prop.Prop {
-	return map[string]map[string]*prop.Prop{
-		dbusProtocolInterface: {
-			propertyReachabilityState: {
-				Value:    p.Reachability,
-				Writable: false,
-				Emit:     prop.EmitTrue,
-				Callback: nil,
-			},
-		},
-	}
-}
-
-// SetReachabilityState set the value of the property ReachabilityState
-func (p *Protocol) SetReachabilityState(state ReachabilityState) {
-	if p.properties == nil {
-		return
-	}
-
-	oldVariant, err := p.properties.Get(dbusProtocolInterface, propertyReachabilityState)
-
-	if err != nil {
-		return
-	}
-
-	oldState := oldVariant.Value().(ReachabilityState)
-	if oldState == state {
-		return
-	}
-
-	p.log.Info("propertyReachabilityState of the protocol", p.protocolName, "changed from", oldState, "to", state)
-	p.properties.SetMust(dbusProtocolInterface, propertyReachabilityState, state)
-}
-
-// SetCallbacks set new callbacks for this Root protocol
-func (r *RootProto) SetRootProtocolCBs() {
-	switch cb := r.Protocol.cbs.(type) {
-	case interface{ AddBridge(*Protocol) }:
-		r.addBridgeCB = cb
-	}
-	switch cb := r.Protocol.cbs.(type) {
-	case interface{ RemoveBridge(string) }:
-		r.removeBridgeCB = cb
-	}
-}
-
-// SetCallbacks set new callbacks for this protocol
-func (p *Protocol) SetProtocolCBs() {
-	switch cb := p.cbs.(type) {
-	case interface{ AddDevice(*Device) }:
-		p.addDeviceCB = cb
-	}
-	switch cb := p.cbs.(type) {
-	case interface{ RemoveDevice(string) }:
-		p.removeDeviceCB = cb
-	}
-	switch cb := p.cbs.(type) {
-	case interface{ AddItem(*Item) }:
-		p.addItemCB = cb
-	}
-	switch cb := p.cbs.(type) {
-	case interface{ RemoveItem(string, string) }:
-		p.removeItemCB = cb
+// Ready set the Protocol object parameter "ready" to true
+func (p *Protocol) Ready() {
+	if p != nil {
+		p.Lock()
+		p.ready = true
+		p.Unlock()
 	}
 }
 
@@ -352,4 +260,48 @@ func (p *Protocol) SetDbusMethods(externalMethods map[string]interface{}) bool {
 		return false
 	}
 	return true
+}
+
+// SetCallbacks set new callbacks for this protocol
+func (p *Protocol) SetProtocolCBs() {
+	switch cb := p.cbs.(type) {
+	case interface{ AddDevice(*Device) }:
+		p.addDeviceCB = cb
+	}
+	switch cb := p.cbs.(type) {
+	case interface{ RemoveDevice(string) }:
+		p.removeDeviceCB = cb
+	}
+}
+
+// SetReachabilityState set the value of the property ReachabilityState
+func (p *Protocol) SetReachabilityState(state ReachabilityState) {
+	if p.properties == nil {
+		return
+	}
+
+	oldVariant, err := p.properties.Get(dbusProtocolInterface, propertyReachabilityState)
+	if err != nil {
+		return
+	}
+
+	oldState := oldVariant.Value().(ReachabilityState)
+	if oldState == state {
+		return
+	}
+
+	p.log.Info("propertyReachabilityState of the protocol", p.protocolName, "changed from", oldState, "to", state)
+	p.properties.SetMust(dbusProtocolInterface, propertyReachabilityState, state)
+}
+
+// SetCallbacks set new callbacks for this Root protocol
+func (r *RootProto) SetRootProtocolCBs() {
+	switch cb := r.Protocol.cbs.(type) {
+	case interface{ AddBridge(*Protocol) }:
+		r.addBridgeCB = cb
+	}
+	switch cb := r.Protocol.cbs.(type) {
+	case interface{ RemoveBridge(string) }:
+		r.removeBridgeCB = cb
+	}
 }

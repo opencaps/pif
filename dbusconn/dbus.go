@@ -57,5 +57,5 @@ func (dc *Dbus) InitDbus(protocolName string, cbs interface{}) bool {
 	dc.Log.Info("Connected on DBus")
 
 	dc.Bridges = map[string]*BridgeProto{}
-	return dc.initRootProtocolObject(cbs)
+	return dc.initRootProtocol(cbs)
 }
