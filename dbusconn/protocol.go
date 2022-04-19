@@ -28,12 +28,14 @@ type ReachabilityState string
 
 // Protocol is a dbus object which represents the states of a protocol
 type Protocol struct {
-	dc             *Dbus
-	Devices        map[string]*Device
+	BridgeID     string
+	Devices      map[string]*Device
+	Reachability ReachabilityState
+
 	ready          bool
 	log            *logging.Logger
 	properties     *prop.Properties
-	Reachability   ReachabilityState
+	dc             *Dbus
 	protocolName   string
 	addDeviceCB    interface{ AddDevice(*Device) }
 	removeDeviceCB interface{ RemoveDevice(string) }
@@ -118,6 +120,7 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 			Reachability: ReachabilityUnknown,
 			cbs:          r.Protocol.cbs,
 			isBridged:    true,
+			BridgeID:     bridgeID,
 		}
 
 		p.SetDbusProperties(nil)
