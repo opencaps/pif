@@ -2,10 +2,13 @@ package driver
 
 // HardwareDescriptor struct for an hardware descriptor from hemis
 type HardwareDescriptor struct {
-	IsSensor     bool               `json:"sensor"`
-	ExtendedType *string            `json:"extendedType,omitempty"`
-	Formula      map[string]Formula `json:"formulas"`
-	Frequency    *int               `json:"frequency,omitempty"`
+	IsSensor        bool               `json:"sensor"`
+	ExtendedType    *string            `json:"extendedType,omitempty"`
+	Formula         map[string]Formula `json:"formulas"`
+	ValueFirstIndex *int               `json:"valueFirstIndex,omitempty"`
+	ValueLastIndex  *int               `json:"valueLastIndex,omitempty"`
+	Frequency       *int               `json:"frequency,omitempty"`
+	PairingNeeded   bool               `json:"pairingNeeded,omitempty"`
 
 	// For sensor
 	RequestFrame *string `json:"requestFrame,omitempty"`

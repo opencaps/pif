@@ -10,10 +10,14 @@ const (
 
 // DriverItem driver for an item type
 type DriverItem struct {
-	Type      string
-	Read      Translation
-	Write     Translation
-	Frequency *int
+	Type            string
+	Read            Translation
+	Write           Translation
+	Frequency       *int
+	IsSensor        bool
+	ValueFirstIndex *int
+	ValueLastIndex  *int
+	PairingNeeded   bool
 }
 
 var itemPathRegex, _ = regexp.Compile("[^a-zA-Z0-9_]")
@@ -58,6 +62,10 @@ func initDriverItem(hd HardwareDescriptor) (*DriverItem, bool) {
 	}
 
 	driver.Frequency = hd.Frequency
+	driver.IsSensor = hd.IsSensor
+	driver.ValueFirstIndex = hd.ValueFirstIndex
+	driver.ValueLastIndex = hd.ValueLastIndex
+	driver.PairingNeeded = hd.PairingNeeded
 
 	return driver, true
 }
