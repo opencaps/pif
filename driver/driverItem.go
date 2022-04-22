@@ -10,39 +10,33 @@ const (
 
 // DriverItem driver for an item type
 type DriverItem struct {
-	Type            string
-	Read            Translation
-	Write           Translation
-	Frequency       *int
-	IsSensor        bool
-	ValueFirstIndex *int
-	ValueLastIndex  *int
-	PairingNeeded   bool
+	Type          string
+	Read          Translation
+	Write         Translation
+	Frequency     *int
+	IsSensor      bool
+	PairingNeeded bool
+	HDesc         *HardwareDescriptor
 }
 
 var itemPathRegex, _ = regexp.Compile("[^a-zA-Z0-9_]")
 
 func initDriverItem(hd HardwareDescriptor) (*DriverItem, bool) {
-	driver := &DriverItem{}
+	driver := &DriverItem{HDesc: &hd}
 
 	if hd.ExtendedType != nil {
 		driver.Type = *hd.ExtendedType
 	}
 
 	if hd.IsSensor {
-		if hd.RequestFrame == nil {
-			log.Warning("RequestFrame of hardware descriptor is nil", hd)
-			return nil, false
+		if hd.RequestFrame != nil {
+			driver.Read.Field = *hd.RequestFrame
+			driver.Write.Field = *hd.RequestFrame
 		}
-		driver.Read.Field = *hd.RequestFrame
-		driver.Write.Field = *hd.RequestFrame
 	} else {
-		if hd.AckFrame == nil {
-			log.Warning("AckFrame of hardware descriptor is nil", hd)
-			return nil, false
+		if hd.AckFrame != nil {
+			driver.Read.Field = *hd.AckFrame
 		}
-		driver.Read.Field = *hd.AckFrame
-
 		if hd.StateRequestFrame != nil {
 			driver.Write.Field = *hd.StateRequestFrame
 		} else {
@@ -63,8 +57,6 @@ func initDriverItem(hd HardwareDescriptor) (*DriverItem, bool) {
 
 	driver.Frequency = hd.Frequency
 	driver.IsSensor = hd.IsSensor
-	driver.ValueFirstIndex = hd.ValueFirstIndex
-	driver.ValueLastIndex = hd.ValueLastIndex
 	driver.PairingNeeded = hd.PairingNeeded
 
 	return driver, true
