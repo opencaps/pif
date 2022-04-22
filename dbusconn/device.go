@@ -260,7 +260,7 @@ func (d *Device) SetOption(options []byte) {
 		return
 	}
 
-	d.log.Info("propertyOptions of the device", d.DevID, "changed from", oldState, "to", newState)
+	d.log.Info("propertyOptions of the device", d.DevID, "changed from", string(oldState), "to", string(newState))
 	d.properties.SetMust(dbusDeviceInterface, propertyOptions, newState)
 }
 

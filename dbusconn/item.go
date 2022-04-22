@@ -184,7 +184,7 @@ func (i *Item) SetOption(options []byte) {
 		return
 	}
 
-	i.log.Info("propertyOptions of the item", i.ItemID, "changed from", oldState, "to", newState)
+	i.log.Info("propertyOptions of the item", i.ItemID, "changed from", string(oldState), "to", string(newState))
 	i.properties.SetMust(dbusItemInterface, propertyOptions, newState)
 }
 
@@ -206,6 +206,6 @@ func (i *Item) SetValue(value []byte) {
 		return
 	}
 
-	i.log.Info("propertyValue of the item", i.ItemID, "changed from", oldState, "to", newState)
+	i.log.Info("propertyValue of the item", i.ItemID, "changed from", string(oldState), "to", string(newState))
 	i.properties.SetMust(dbusItemInterface, propertyValue, newState)
 }
