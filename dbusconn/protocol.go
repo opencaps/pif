@@ -97,9 +97,9 @@ func (r *RootProto) setLogLevel(c *prop.Change) *dbus.Error {
 	if err == nil {
 		logging.SetLevel(level, r.dc.Log.Module)
 		r.log.Info("Log level has been set to ", c.Value.(string))
-		return &dbus.ErrMsgInvalidArg
 	} else {
 		r.log.Error(err)
+		return &dbus.ErrMsgInvalidArg
 	}
 	return nil
 }
@@ -219,7 +219,7 @@ func (p *Protocol) SetDbusMethods(externalMethods map[string]interface{}) bool {
 	exportedMethods["IsReady"] = p.IsReady
 	exportedMethods["AddDevice"] = p.AddDevice
 	exportedMethods["RemoveDevice"] = p.RemoveDevice
-	if p.isBridged {
+	if !p.isBridged {
 		exportedMethods["AddBridge"] = p.dc.RootProtocol.AddBridge
 		exportedMethods["RemoveBridge"] = p.dc.RootProtocol.RemoveBridge
 	}
