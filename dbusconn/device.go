@@ -101,7 +101,7 @@ func initDevice(devID string, address string, typeID string, typeVersion string,
 	}
 
 	//Emit Device Added
-	d.EmitDbusSignal(signalDeviceAdded, []interface{}{d.Address, d.TypeID, d.TypeVersion, d.Options})
+	d.EmitDbusSignal(signalDeviceAdded, d.Address, d.TypeID, d.TypeVersion, d.Options)
 }
 
 func removeDevice(d *Device) {
@@ -163,7 +163,7 @@ func (d *Device) RemoveItem(itemID string) *dbus.Error {
 	return nil
 }
 
-//UpdateFirmware is the dbus method to update the firmware of the device
+// UpdateFirmware is the dbus method to update the firmware of the device
 func (d *Device) UpdateFirmware(data string) (string, *dbus.Error) {
 	if !isNil(d.updateFirmwareCb) {
 		go d.updateFirmwareCb.UpdateFirmware(d, data)

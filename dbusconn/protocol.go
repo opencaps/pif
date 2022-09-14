@@ -104,7 +104,7 @@ func (r *RootProto) setLogLevel(c *prop.Change) *dbus.Error {
 	return nil
 }
 
-//AddBridge is the dbus method to add a new bridge
+// AddBridge is the dbus method to add a new bridge
 func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 	r.log.Info("AddBridge called - bridgeID:", bridgeID)
 
@@ -138,7 +138,7 @@ func (r *RootProto) AddBridge(bridgeID string) (bool, *dbus.Error) {
 	return alreadyAdded, nil
 }
 
-//AddDevice is the dbus method to add a new device
+// AddDevice is the dbus method to add a new device
 func (p *Protocol) AddDevice(devID string, comID string, typeID string, typeVersion string, options []byte) (bool, *dbus.Error) {
 	p.log.Info("AddDevice called - devID:", devID, "comID:", comID, "typeID:", typeID, "typeVersion:", options, "typeVersion:", options)
 	p.Lock()
@@ -158,7 +158,7 @@ func (p *Protocol) IsReady() (bool, *dbus.Error) {
 	return ready, nil
 }
 
-//RemoveBridge is the dbus method to remove a bridge
+// RemoveBridge is the dbus method to remove a bridge
 func (r *RootProto) RemoveBridge(bridgeID string) *dbus.Error {
 	r.log.Info("RemoveBridge called - bridgeID:", bridgeID)
 	r.Protocol.Lock()
@@ -185,7 +185,7 @@ func (r *RootProto) RemoveBridge(bridgeID string) *dbus.Error {
 	return nil
 }
 
-//RemoveDevice is the dbus method to remove a device
+// RemoveDevice is the dbus method to remove a device
 func (p *Protocol) RemoveDevice(devID string) *dbus.Error {
 	p.log.Info("RemoveDevice called - devID:", devID)
 	p.Lock()
