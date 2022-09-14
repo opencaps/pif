@@ -62,7 +62,7 @@ func initItem(itemID string, typeID string, typeVersion string, options []byte, 
 		go d.addItemCB.AddItem(i)
 	}
 
-	i.EmitDbusSignal(signalItemAdded, []interface{}{i.TypeID, i.TypeVersion, i.Options})
+	i.EmitDbusSignal(signalItemAdded, i.TypeID, i.TypeVersion, i.Options)
 
 	return i
 }
