@@ -33,6 +33,26 @@ type Dbus struct {
 	Log          *logging.Logger
 }
 
+type ProtocolJson struct {
+	Protocols map[string][]DeviceJson `json:"Protocols"`
+}
+
+type DeviceJson struct {
+	DevID          string          `json:"devID"`
+	ComID          string          `json:"comID"`
+	DevTypeID      string          `json:"devTypeID"`
+	DevTypeVersion string          `json:"typeVersion"`
+	DevOptions     json.RawMessage `json:"devOptions"`
+	Items          []ItemJson      `json:"items"`
+}
+
+type ItemJson struct {
+	ItemID          string          `json:"itemID"`
+	ItemTypeID      string          `json:"itemTypeID"`
+	ItemTypeVersion string          `json:"itemTypeVersion"`
+	ItemOptions     json.RawMessage `json:"itemOptions"`
+}
+
 func isNil(i interface{}) bool {
 	return i == nil || reflect.ValueOf(i).IsNil()
 }
@@ -76,7 +96,7 @@ func (dc *Dbus) restoreDevices() {
 	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 	defer cancel()
 
-	var ret interface{}
+	var ret json.RawMessage
 	obj := dc.conn.Object(deviceManagerDestination, deviceManagerPath)
 	err := obj.CallWithContext(ctx, deviceManagerMethod, 0, dc.ProtocolName).Store(&ret)
 	if err != nil {
@@ -84,10 +104,10 @@ func (dc *Dbus) restoreDevices() {
 		return
 	}
 
-	var protocols map[string]interface{}
-	json.Unmarshal(ret.([]uint8), &protocols)
+	var protocols ProtocolJson
+	json.Unmarshal(ret, &protocols)
 
-	for name, rawProtocol := range protocols {
+	for name, devices := range protocols.Protocols {
 		var protocol *Protocol
 		if name == dc.ProtocolName {
 			// This it root protocol
@@ -98,28 +118,13 @@ func (dc *Dbus) restoreDevices() {
 			protocol = dc.Bridges[name].Protocol
 		}
 
-		devices := rawProtocol.([]map[string]interface{})
+		for _, dev := range devices {
+			protocol.AddDevice(dev.DevID, dev.ComID, dev.DevTypeID, dev.DevTypeVersion, dev.DevOptions)
+			device := protocol.Devices[dev.DevID]
 
-		for _, rawDevice := range devices {
-			devID := rawDevice["devID"].(string)
-			comID := rawDevice["comID"].(string)
-			devTypeID := rawDevice["devTypeID"].(string)
-			devTypeVersion := rawDevice["typeVersion"].(string)
-			devOptions := rawDevice["devOptions"].([]byte)
-
-			protocol.AddDevice(devID, comID, devTypeID, devTypeVersion, devOptions)
-			device := protocol.Devices[devID]
-
-			items := rawDevice["items"].([]map[string]interface{})
-			for _, rawItem := range items {
-				itemID := rawItem["itemID"].(string)
-				itemTypeID := rawItem["itemTypeID"].(string)
-				itemTypeVersion := rawItem["itemTypeVersion"].(string)
-				itemOptions := rawItem["itemOptions"].([]byte)
-
-				device.AddItem(itemID, itemTypeID, itemTypeVersion, itemOptions)
+			for _, item := range dev.Items {
+				device.AddItem(item.ItemID, item.ItemTypeID, item.ItemTypeVersion, item.ItemOptions)
 			}
 		}
-
 	}
 }
