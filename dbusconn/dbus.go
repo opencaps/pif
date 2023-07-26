@@ -13,16 +13,17 @@ import (
 )
 
 const (
-	driverPath               = "/data/drivers/items/"
-	dbusNamePrefix           = "com.ubiant.Protocol."
-	dbusPathPrefix           = "/com/ubiant/Devices/"
-	dbusProtocolInterface    = "com.ubiant.Protocol"
-	dbusDeviceInterface      = "com.ubiant.Device"
-	dbusItemInterface        = "com.ubiant.Item"
-	deviceManagerDestination = "com.ubiant.DeviceManager"
-	deviceManagerMethod      = "com.ubiant.DeviceManager.GetStoredDevices"
-	deviceManagerPath        = "/com/ubiant/DeviceManager"
-	callTimeout              = 12 * time.Second
+	driverPath                 = "/data/drivers/items/"
+	dbusNamePrefix             = "com.ubiant.Protocol."
+	dbusPathPrefix             = "/com/ubiant/Devices/"
+	dbusProtocolInterface      = "com.ubiant.Protocol"
+	dbusDeviceInterface        = "com.ubiant.Device"
+	dbusItemInterface          = "com.ubiant.Item"
+	deviceManagerDestination   = "com.ubiant.DeviceManager"
+	deviceManagerDevicesMethod = "com.ubiant.DeviceManager.GetStoredDevices"
+	deviceManagerBridgesMethod = "com.ubiant.DeviceManager.GetBridges"
+	deviceManagerPath          = "/com/ubiant/DeviceManager"
+	callTimeout                = 12 * time.Second
 )
 
 // Dbus exported structure
@@ -36,6 +37,10 @@ type Dbus struct {
 
 type ProtocolJson struct {
 	Protocols map[string][]DeviceJson `json:"Protocols"`
+}
+
+type BridgeJson struct {
+	Bridges map[string]string `json:"bridges"`
 }
 
 type DeviceJson struct {
@@ -87,9 +92,36 @@ func (dc *Dbus) InitDbus(protocolName string, cbs interface{}) *Protocol {
 	dc.Bridges = map[string]*BridgeProto{}
 	protocol := dc.initRootProtocol(cbs)
 
+	dc.restoreBridges()
 	dc.restoreDevices()
 
 	return protocol
+}
+
+func (dc *Dbus) restoreBridges() {
+	// Get the bridges related to this protocol from the DeviceManager
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+
+	var ret json.RawMessage
+	obj := dc.conn.Object(deviceManagerDestination, deviceManagerPath)
+	err := obj.CallWithContext(ctx, deviceManagerBridgesMethod, 0).Store(&ret)
+	if err != nil {
+		dc.Log.Warning("Unable to get the bridges from the DeviceManager: ", err)
+		return
+	}
+	var bridges BridgeJson
+	err = json.Unmarshal(ret, &bridges)
+	if err != nil {
+		dc.Log.Error("Could not read bridges json from the DeviceManager: ", err)
+		return
+	}
+
+	for bridgeID, bridgeProtocol := range bridges.Bridges {
+		if bridgeProtocol == dc.ProtocolName {
+			dc.RootProtocol.AddBridge(bridgeID)
+		}
+	}
 }
 
 func (dc *Dbus) restoreDevices() {
@@ -99,14 +131,18 @@ func (dc *Dbus) restoreDevices() {
 
 	var ret json.RawMessage
 	obj := dc.conn.Object(deviceManagerDestination, deviceManagerPath)
-	err := obj.CallWithContext(ctx, deviceManagerMethod, 0, dc.ProtocolName).Store(&ret)
+	err := obj.CallWithContext(ctx, deviceManagerDevicesMethod, 0, dc.ProtocolName).Store(&ret)
 	if err != nil {
 		dc.Log.Warning("Unable to get the devices from the DeviceManager: ", err)
 		return
 	}
 
 	var protocols ProtocolJson
-	json.Unmarshal(ret, &protocols)
+	err = json.Unmarshal(ret, &protocols)
+	if err != nil {
+		dc.Log.Error("Could not read devices json from the DeviceManager: ", err)
+		return
+	}
 
 	for name, devices := range protocols.Protocols {
 		var protocol *Protocol
