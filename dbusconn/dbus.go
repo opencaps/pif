@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -114,8 +115,9 @@ func (dc *Dbus) restoreDevices() {
 			protocol = dc.RootProtocol.Protocol
 		} else {
 			// This is bridge protocol
-			dc.RootProtocol.AddBridge(name)
-			protocol = dc.Bridges[name].Protocol
+			bridgeId := strings.ReplaceAll(name, dc.ProtocolName+"_", "")
+			dc.RootProtocol.AddBridge(bridgeId)
+			protocol = dc.Bridges[bridgeId].Protocol
 		}
 
 		for _, dev := range devices {
