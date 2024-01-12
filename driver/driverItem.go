@@ -40,7 +40,9 @@ func initDriverItem(hd HardwareDescriptor) (*DriverItem, bool) {
 		if hd.StateRequestFrame != nil {
 			driver.Write.Field = *hd.StateRequestFrame
 		} else {
-			driver.Write.Field = *hd.AckFrame
+			if hd.AckFrame != nil {
+				driver.Write.Field = *hd.AckFrame
+			}
 		}
 	}
 
