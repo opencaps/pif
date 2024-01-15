@@ -43,6 +43,7 @@ type Formula struct {
 	LearnBitIndex         *int     `json:"LRNBIndex,omitempty"`
 	LearnBitValue         *int     `json:"learnBitValue,omitempty"`
 	DIVFirstIndex         *int     `json:"divFirstIndex,omitempty"`
+	DIVLastIndex          *int     `json:"divLastIndex,omitempty"`
 	DivMap                *string  `json:"divMap,omitempty"`
 	DataTypeIndex         *int     `json:"DTIndex,omitempty"`
 	DTIndexLength         *int     `json:"DTIndexLength,omitempty"`
