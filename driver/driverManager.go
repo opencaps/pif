@@ -2,7 +2,7 @@ package driver
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"os"
 	"sync"
 
@@ -54,7 +54,7 @@ func (dm *DriversManager) GetDriverItem(id string, version string) (*DriverItem,
 	}
 	defer jsonFile.Close()
 
-	byteValue, err := ioutil.ReadAll(jsonFile)
+	byteValue, err := io.ReadAll(jsonFile)
 	if err != nil {
 		log.Warning("unable to read the item driver from", path)
 		return nil, false
