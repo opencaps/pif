@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	itemsPath = "/data/ubiant/drivers/items/"
+	itemsPath = "/data/opencaps/drivers/items/"
 )
 
 // DriverItem driver for an item type

@@ -13,16 +13,15 @@ import (
 )
 
 const (
-	driverPath                 = "/data/drivers/items/"
-	dbusNamePrefix             = "com.ubiant.Protocol."
-	dbusPathPrefix             = "/com/ubiant/Devices/"
-	dbusProtocolInterface      = "com.ubiant.Protocol"
-	dbusDeviceInterface        = "com.ubiant.Device"
-	dbusItemInterface          = "com.ubiant.Item"
-	deviceManagerDestination   = "com.ubiant.DeviceManager"
-	deviceManagerDevicesMethod = "com.ubiant.DeviceManager.GetStoredDevices"
-	deviceManagerBridgesMethod = "com.ubiant.DeviceManager.GetBridges"
-	deviceManagerPath          = "/com/ubiant/DeviceManager"
+	dbusNamePrefix             = "io.opencaps.Protocol."
+	dbusPathPrefix             = "/io/opencaps/Devices/"
+	dbusProtocolInterface      = "io.opencaps.Protocol"
+	dbusDeviceInterface        = "io.opencaps.Device"
+	dbusItemInterface          = "io.opencaps.Item"
+	deviceManagerDestination   = "io.opencaps.DeviceManager"
+	deviceManagerDevicesMethod = "io.opencaps.DeviceManager.GetStoredDevices"
+	deviceManagerBridgesMethod = "io.opencaps.DeviceManager.GetBridges"
+	deviceManagerPath          = "/io/opencaps/DeviceManager"
 	callTimeout                = 12 * time.Second
 )
 

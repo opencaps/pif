@@ -1,4 +1,4 @@
-module github.com/ubiant/pif
+module github.com/opencaps/pif
 
 go 1.16
 
