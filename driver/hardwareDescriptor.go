@@ -31,16 +31,19 @@ type HardwareDescriptor struct {
 
 // Formula struct for a formula
 type Formula struct {
+	FormulaType           *string  `json:"translationType,omitempty"`
 	Map                   string   `json:"map"`
 	A                     *float64 `json:"a,omitempty"`
 	B                     *float64 `json:"b,omitempty"`
 	G                     *float64 `json:"g,omitempty"`
+	StartWith             *string  `json:"startWith,omitempty"`
 	ConstantPart          *string  `json:"constantPart,omitempty"`
 	ValueFirstIndex       *int     `json:"valueFirstIndex,omitempty"`
 	ValueLastIndex        *int     `json:"valueLastIndex,omitempty"`
 	LearnBitIndex         *int     `json:"LRNBIndex,omitempty"`
 	LearnBitValue         *int     `json:"learnBitValue,omitempty"`
 	DIVFirstIndex         *int     `json:"divFirstIndex,omitempty"`
+	DIVLastIndex          *int     `json:"divLastIndex,omitempty"`
 	DivMap                *string  `json:"divMap,omitempty"`
 	DataTypeIndex         *int     `json:"DTIndex,omitempty"`
 	DTIndexLength         *int     `json:"DTIndexLength,omitempty"`
